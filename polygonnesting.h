@@ -1,0 +1,201 @@
+#include <vector>
+
+#include <assert.h>
+
+// #TODO: remove, just for debugging purposes
+#include <iostream>
+
+// simple 2D vertex
+// #TODO: replace this by a more flexible implementation allowing arbitrary data and functors for retrieving X and Y coordinates
+struct Vertex2D
+{
+    float x;
+    float y;
+};
+
+// #TODO: replae by more flexible implementation??
+using Polygon = std::vector<Vertex2D>;
+using PolygonSet = std::vector<Polygon*>;
+
+enum class VertexOrder
+{
+    CCW,    // counter-clockwise orientation
+    CW      // clock-wise orientation
+};
+
+struct Subchain
+{
+    size_t polygon;                 ///< index into the polygon set for the polygon containing this subchain
+    std::vector<size_t> vertices;   ///< indices into the polygon's vertex list
+
+    size_t currentEdge;             ///< index into the polygon's vertex list for the left vertex of the edge in the subchain currently intersected by the vertical sweep line
+};
+
+/// Computes the winding order of the vertices of a polygon (#TODO: do this when computing the polygon instead of afterwards)
+VertexOrder ComputeVertexOrder(const Polygon& p) {
+    float area = 0;
+    //begin with edge to the first vertex and then iterate through all edges
+    Vertex2D startVertex = p.back();
+    Vertex2D endVertex;
+    for (Polygon::const_iterator i = p.begin(); i != p.end(); ++i) {
+        endVertex = *i;
+        area += startVertex.x * endVertex.y - startVertex.y * endVertex.x;
+        startVertex = endVertex;
+    }
+
+    return (area > 0) ? VertexOrder::CCW : VertexOrder::CW;
+}
+
+/// Computes the orientation of three consecutive vertices 
+float OrientationTest(const Vertex2D& pa, const Vertex2D& pb, const Vertex2D& pc) {
+    float acx = pa.x - pc.x;
+    float bcx = pb.x - pc.x;
+    float acy = pa.y - pc.y;
+    float bcy = pb.y - pc.y;
+
+    return acx * bcy - acy * bcx;
+}
+
+/// Checks if vertex pc lies to the left of the directed line through vertices pa and pb or on the line
+bool LeftTurnCollinear(const Vertex2D& pa, const Vertex2D& pb, const Vertex2D& pc) {
+    return (OrientationTest(pa, pb, pc) >= 0);
+}
+
+/// Checks if vertex pc lies to the right of the directed line through vertices pa and pb or on the line
+bool RightTurnCollinear(const Vertex2D& pa, const Vertex2D& pb, const Vertex2D& pc) {
+    return (OrientationTest(pa, pb, pc) <= 0);
+}
+
+// #TODO: ordering of points: x1<x2 or if x1==x2: y1>y2
+
+// #TODO: compute intersection of edge with vertical line
+
+
+/// returns the cyclic successor index for a vertex index
+size_t succ(size_t vertexIndex, const Polygon& polygon)
+{
+    return (vertexIndex + 1) % polygon.size();
+}
+
+/// returns the cyclic predecessor index for a vertex index
+size_t pred(size_t vertexIndex, const Polygon& polygon)
+{
+    assert(polygon.size() > 2);
+    
+    return (vertexIndex == 0) ? polygon.size() - 1 : vertexIndex - 1;
+}
+
+void PolygonNesting(const PolygonSet& polygonSet)
+{
+    assert(!polygonSet.empty());
+
+    // step 1: break down each polygon into subchains
+
+    // preliminary step: compute the vertex winding order for each polygon
+    // #TODO: this step should be done prior to performing the polygon nesting algorithm if possible (e.g., during assembly of the polygon vertices)
+    std::vector<VertexOrder> vertexOrder(polygonSet.size());
+    for (size_t i = 0; i < polygonSet.size(); ++i)
+    {
+        vertexOrder[i] = ComputeVertexOrder(*(polygonSet[i]));
+    }
+
+    // find subchains for all polygons
+    // #TODO: this step could be performed in parallel, but this might only be beneficial for a large number of polygons
+    std::vector<Subchain> subchains;
+    for (size_t i = 0; i < polygonSet.size(); ++i)
+    {
+        const Polygon& currentPolygon = *(polygonSet[i]);
+
+        assert(currentPolygon.size() > 2);
+
+        // depending on the winding order, we need the left turn or right turn test to check for reflex vertices
+        auto convexityTest = (vertexOrder[i] == VertexOrder::CCW) ? &LeftTurnCollinear : &RightTurnCollinear;
+
+        // we look for the leftmost vertex as it is a guaranteed starting point of a subchain
+        size_t leftMostVertex = 0;   
+        float minX = currentPolygon[0].x;     
+        for (size_t currentVertex = 1; currentVertex < currentPolygon.size(); ++currentVertex)
+        {
+            if (currentPolygon[currentVertex].x < minX)
+            {
+                leftMostVertex = currentVertex;
+                minX = currentPolygon[currentVertex].x;
+            }
+        }
+
+        // traverse vertices
+        // subchain ends: 
+        // - when the convex polygonal line ends (i.e., at a reflex vertex)
+        // - when the next vertex would break the convex chain (i.e., connecting the last to the first vertex would lead to a reflex angle)
+        // - when the next vertex would break the subchain (i.e., x-monotony of the chain)
+        size_t subChainEndVertex = currentPolygon.size();   // end vertex of the current subchain (in the beginning undefined)
+        bool subChainEnded = false;                         // flag that is se when one of the terminating conditions for the current subchain is met
+        bool increaseX = true;                              // for checking x-monotony (in the beginning, x increases as we start with the leftmost vertex)
+
+        // we terminate once a subchain ends where we started
+        size_t currentVertex = leftMostVertex;
+        Subchain currentSubchain = { };
+        currentSubchain.polygon = i;
+        while(subChainEndVertex != leftMostVertex)
+        {
+            size_t nextVertex = succ(currentVertex, currentPolygon);
+            
+            // check conditions for ending subchain
+            if (    // 1. we are back at the beginning
+                    (currentVertex == leftMostVertex && subChainEndVertex != currentPolygon.size())
+                    // 2. current vertex is a reflex vertex - convex polygonal line ends, therefore also the subchain
+                    ||  (!convexityTest(currentPolygon[pred(currentVertex, currentPolygon)], currentPolygon[currentVertex], currentPolygon[nextVertex]))
+                    // 3. next vertex breaks the convex chain - we need to terminate the polygonal chain
+                    ||  (!convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
+                    // 4. next vertex breaks the monotony
+                    ||  ((increaseX && currentPolygon[nextVertex].x < currentPolygon[currentVertex].x) || (!increaseX && currentPolygon[nextVertex].x > currentPolygon[currentVertex].x))
+                )
+            {
+                subChainEnded = true;
+                subChainEndVertex = currentVertex;
+            }
+
+            currentSubchain.vertices.push_back(currentVertex);
+
+            if (subChainEnded)
+            {
+                // subchain ended - insert into list of subchains
+                if (!increaseX)
+                {
+                    std::reverse(currentSubchain.vertices.begin(), currentSubchain,vertices.end());
+                }
+                subchains.push_back(currentSubchain);
+
+                // set new subchain start vertex and continue
+                currentSubchain = { };
+                currentSubchain.polygon = i;
+                currentSubchain.vertices.push_back(currentVertex);
+               
+                increaseX = (currentPolygon[nextVertex].x > currentPolygon[currentVertex].x);                
+                subChainEnded = false;
+            }
+
+            currentVertex = nextVertex;
+        }
+    }
+
+    for (auto& s : subchains)
+    {
+        std::cout << "Subchain: " << " polygon " << s.polygon << ", vertices: ";
+        for (auto i : s.vertices)
+        {
+            std::cout << i << " ";
+        }
+        std::cout << std::endl;
+    }
+ 
+
+
+
+    
+    // step 2: sort the endpoints of all subchains
+
+
+}
+
+ 
