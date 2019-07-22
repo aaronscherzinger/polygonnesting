@@ -87,6 +87,12 @@ size_t pred(size_t vertexIndex, const Polygon& polygon)
     return (vertexIndex == 0) ? polygon.size() - 1 : vertexIndex - 1;
 }
 
+// #TODO: template this by: Polygon Type, Vertex Type, coordinate Type
+// #TODO: member functions to add polygon (by pointers) and clear everything
+// #TODO: set functors that get x and y from a vertex, get a specific vertex by index from a polygon, get the number of vertices from a polygon
+// #TODO: maybe optional optionally allow to directly use point operator on vertices
+// #TODO: how to handle succ, pred, getting the vertex order?
+
 void PolygonNesting(const PolygonSet& polygonSet)
 {
     assert(!polygonSet.empty());
@@ -148,7 +154,7 @@ void PolygonNesting(const PolygonSet& polygonSet)
                     // 2. current vertex is a reflex vertex - convex polygonal line ends, therefore also the subchain
                     ||  (!convexityTest(currentPolygon[pred(currentVertex, currentPolygon)], currentPolygon[currentVertex], currentPolygon[nextVertex]))
                     // 3. next vertex breaks the convex chain - we need to terminate the polygonal chain
-                    ||  (currentSubchain.vertices.size() > 1) && (!convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
+                    ||  ((currentSubchain.vertices.size() > 1) && !convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
                     // 4. next vertex breaks the monotony
                     ||  ((increaseX && currentPolygon[nextVertex].x < currentPolygon[currentVertex].x) || (!increaseX && currentPolygon[nextVertex].x > currentPolygon[currentVertex].x))
                 )
