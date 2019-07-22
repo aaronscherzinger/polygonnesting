@@ -1,9 +1,11 @@
 #include <vector>
 
+#include <algorithm>
 #include <assert.h>
 
-// #TODO: remove, just for debugging purposes
+#ifdef POLYGONNESTING_PRINT_DEBUG
 #include <iostream>
+#endif
 
 // simple 2D vertex
 // #TODO: replace this by a more flexible implementation allowing arbitrary data and functors for retrieving X and Y coordinates
@@ -146,7 +148,7 @@ void PolygonNesting(const PolygonSet& polygonSet)
                     // 2. current vertex is a reflex vertex - convex polygonal line ends, therefore also the subchain
                     ||  (!convexityTest(currentPolygon[pred(currentVertex, currentPolygon)], currentPolygon[currentVertex], currentPolygon[nextVertex]))
                     // 3. next vertex breaks the convex chain - we need to terminate the polygonal chain
-                    ||  (!convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
+                    ||  (currentSubchain.vertices.size() > 1) && (!convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
                     // 4. next vertex breaks the monotony
                     ||  ((increaseX && currentPolygon[nextVertex].x < currentPolygon[currentVertex].x) || (!increaseX && currentPolygon[nextVertex].x > currentPolygon[currentVertex].x))
                 )
@@ -162,7 +164,7 @@ void PolygonNesting(const PolygonSet& polygonSet)
                 // subchain ended - insert into list of subchains
                 if (!increaseX)
                 {
-                    std::reverse(currentSubchain.vertices.begin(), currentSubchain,vertices.end());
+                    std::reverse(currentSubchain.vertices.begin(), currentSubchain.vertices.end());
                 }
                 subchains.push_back(currentSubchain);
 
@@ -179,6 +181,7 @@ void PolygonNesting(const PolygonSet& polygonSet)
         }
     }
 
+#ifdef POLYGONNESTING_PRINT_DEBUG
     for (auto& s : subchains)
     {
         std::cout << "Subchain: " << " polygon " << s.polygon << ", vertices: ";
@@ -188,11 +191,8 @@ void PolygonNesting(const PolygonSet& polygonSet)
         }
         std::cout << std::endl;
     }
+#endif
  
-
-
-
-    
     // step 2: sort the endpoints of all subchains
 
 
