@@ -201,7 +201,52 @@ void PolygonNesting(const PolygonSet& polygonSet)
  
     // step 2: sort the endpoints of all subchains
 
+    // for each chain, insert its start and end into a list that is then sorted
+    // we mark the start and end by the index into the subchain's vertex list
+    using Endpoint = std::pair<size_t, size_t>; // first index: subchain, second index: subchain vertex index
+    std::vector<Endpoint> sortedEndpoints(subchains.size() * 2);
 
+    for (size_t i = 0; i < subchains.size(); ++i)
+    {
+        sortedEndpoints[2*i] = std::make_pair(i, 0);
+        sortedEndpoints[2*i+1] = std::make_pair(i, subchains[i].vertices.size() - 1);
+    }
+
+    std::sort(sortedEndpoints.begin(), sortedEndpoints.end(), 
+        // comparison functor: 1. by x coordinate, 2. by y coordinate, 3. by index (i.e., if it is an endpoint or a start point)        
+        [&](Endpoint a, Endpoint b) 
+        {
+            size_t polyA = subchains[a.first].polygon;
+            size_t polyB = subchains[b.first].polygon;
+            size_t vertA = subchains[a.first].vertices[a.second];
+            size_t vertB = subchains[b.first].vertices[b.second];
+
+            if ((*(polygonSet[polyA]))[vertA].x != (*(polygonSet[polyB]))[vertB].x)
+            {
+                return ((*(polygonSet[polyA]))[vertA].x < (*(polygonSet[polyB]))[vertB].x);
+            }
+            else if ((*(polygonSet[polyA]))[vertA].y != (*(polygonSet[polyB]))[vertB].y)
+            {
+                return ((*(polygonSet[polyA]))[vertA].y > (*(polygonSet[polyB]))[vertB].y);
+            }
+            else
+            {
+                return vertA > vertB;
+            }
+        });
+
+#ifdef POLYGONNESTING_PRINT_DEBUG
+    std::cout << std::endl << "Sorting result: " << std::endl;
+    for (auto& e : sortedEndpoints)
+    {
+        size_t poly = subchains[e.first].polygon;
+        size_t vert = subchains[e.first].vertices[e.second];
+        float x = (*(polygonSet[poly]))[vert].x;
+        float y = (*(polygonSet[poly]))[vert].y;
+        std::cout << "[" << x << ", " << y << "] (" << e.first << ", " << e.second << ") ";
+    }
+    std::cout << std::endl;
+#endif
 }
 
  
