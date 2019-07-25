@@ -237,7 +237,6 @@ void PolygonNesting(const PolygonSet& polygonSet)
             else
             {
                 // at this point, the two endpoints connect two subchains of the same polygon
-                // #TODO: in the case of two starting / ending subchains, insert the one above the other first
                 return vertA > vertB;
             }
         });
@@ -269,7 +268,6 @@ void PolygonNesting(const PolygonSet& polygonSet)
     assert(subchains[s1].vertices.size() > 1);
     assert(subchains[s2].vertices.size() > 1);
 
-    // #TODO: above should already be used during sorting, making this check unnecessary
     size_t p = subchains[s1].polygon;
 
     if ((*(polygonSet[p]))[subchains[s1].vertices[1]].y > (*(polygonSet[p]))[subchains[s2].vertices[1]].y)
