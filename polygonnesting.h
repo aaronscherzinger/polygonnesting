@@ -95,6 +95,8 @@ size_t pred(size_t vertexIndex, const Polygon& polygon)
 
 void PolygonNesting(const PolygonSet& polygonSet)
 {
+    constexpr size_t INVALID_INDEX = static_cast<size_t>(-1);
+
     assert(!polygonSet.empty());
 
     // step 1: break down each polygon into subchains
@@ -178,6 +180,7 @@ void PolygonNesting(const PolygonSet& polygonSet)
                 currentSubchain = { };
                 currentSubchain.polygon = i;
                 currentSubchain.vertices.push_back(currentVertex);
+                currentSubchain.currentEdge = INVALID_INDEX;
                
                 increaseX = (currentPolygon[nextVertex].x > currentPolygon[currentVertex].x);                
                 subChainEnded = false;
@@ -200,6 +203,8 @@ void PolygonNesting(const PolygonSet& polygonSet)
 #endif
  
     // step 2: sort the endpoints of all subchains
+
+    assert(subchains.size() > 1);
 
     // for each chain, insert its start and end into a list that is then sorted
     // we mark the start and end by the index into the subchain's vertex list
@@ -231,6 +236,8 @@ void PolygonNesting(const PolygonSet& polygonSet)
             }
             else
             {
+                // at this point, the two endpoints connect two subchains of the same polygon
+                // #TODO: in the case of two starting / ending subchains, insert the one above the other first
                 return vertA > vertB;
             }
         });
@@ -247,6 +254,50 @@ void PolygonNesting(const PolygonSet& polygonSet)
     }
     std::cout << std::endl;
 #endif
+
+    // step 3: setup the initial situation for the plane sweep
+
+    assert(sortedEndpoints.size() > 2);
+
+    std::vector<size_t> orderedSubchains;   // #TODO: approximate size?
+
+    // insert the two first subchains - make sure to take into account the "above" relationship when inserting them
+    size_t s1 = sortedEndpoints[0].first;
+    size_t s2 = sortedEndpoints[1].first;
+
+    assert(subchains[s1].polygon == subchains[s2].polygon);
+    assert(subchains[s1].vertices.size() > 1);
+    assert(subchains[s2].vertices.size() > 1);
+
+    // #TODO: above should already be used during sorting, making this check unnecessary
+    size_t p = subchains[s1].polygon;
+
+    if ((*(polygonSet[p]))[subchains[s1].vertices[1]].y > (*(polygonSet[p]))[subchains[s2].vertices[1]].y)
+    {
+        orderedSubchains.push_back(s1);
+        orderedSubchains.push_back(s2);
+    }
+    else
+    {
+        orderedSubchains.push_back(s2);
+        orderedSubchains.push_back(s1);
+    }
+
+    // we remember the current edge where the sweep line stands by its start vertex
+    // (INVALID_INDEX means that the subchain has not been encountered yet)
+    subchains[s1].currentEdge = 0;
+    subchains[s2].currentEdge = 0;
+
+    // #TODO: we already know that the polygon of subchains s1, s2 does not have a parent as it has the leftmost vertex
+    // #TODO: create a graph for the parent relationships? how to represent it in the most efficient / useful manner?
+
+    // setp 4: perform plane sweep from left to right
+
+    // #TODO
+    for (size_t sweepLineIndex = 2; sweepLineIndex < sortedEndpoints.size(); ++sweepLineIndex)
+    {
+
+    }
 }
 
  

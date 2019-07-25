@@ -17,8 +17,17 @@ void PrintPolygonSet(const PolygonSet& polySet)
     }
 }
 
+//#define TEST_CONFIGURATION_1
+//#define TEST_CONFIGURATION_2
+#define TEST_CONFIGURATION_3
+#define TEST_CONFIGURATION_4
+#define TEST_CONFIGURATION_5
+
+//#TODO: once decided how the output should look like, add in asserts to check for the correct graph
+
 int main()
 {
+#ifdef TEST_CONFIGURATION_1
     // test 1: two nested triangle in CCW orientation
     std::cout << std::endl << " TEST 1 " << std::endl << "-----" << std::endl;
     Polygon p1 = { Vertex2D{ 0.f, 0.f }, Vertex2D{2.f, 0.f}, Vertex2D{1.f, 2.f} }; 
@@ -46,8 +55,31 @@ int main()
     PrintPolygonSet(polySet);
 
     PolygonNesting(polySet);
+#endif
 
-    // #TODO: more interesting example - maybe one from the paper?
+#ifdef TEST_CONFIGURATION_2
+    // test 4: Figure 2.1 from technical report 
+    std::cout << std::endl << " TEST 4 " << std::endl << "-----" << std::endl;
+    Polygon p1 = { Vertex2D{ 0.f, 7.f }, Vertex2D{6.5f, 11.f}, Vertex2D{10.f, 11.5f}, Vertex2D{11.5f, 14.f}, Vertex2D{14.5f, 12.f}, Vertex2D{13.8f, 10.9f}, Vertex2D{12.f, 10.5f}, Vertex2D{10.2f, 8.5f}, Vertex2D{12.5f, 5.f}, Vertex2D{11.f, 2.f}, Vertex2D{7.5f, 0.8f}, Vertex2D{4.3f, 1.f}, Vertex2D{1.f, 3.f} }; 
+
+    PolygonSet polySet = { &p1 };
+
+    PrintPolygonSet(polySet);
+
+    PolygonNesting(polySet);
+#endif
+
+#ifdef TEST_CONFIGURATION_3
+   // #TODO 
+#endif
+
+#ifdef TEST_CONFIGURATION_4
+   // #TODO 
+#endif
+
+#ifdef TEST_CONFIGURATION_5
+   // #TODO 
+#endif
 
     return 0;
 }
