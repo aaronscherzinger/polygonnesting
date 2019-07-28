@@ -279,10 +279,18 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         bool subChainEnded = false;                         // flag that is se when one of the terminating conditions for the current subchain is met
         bool increaseX = true;                              // for checking x-monotony (in the beginning, x increases as we start with the leftmost vertex)
 
-        // we terminate once a subchain ends where we started
-        size_t currentVertex = leftMostVertex;
+        // current subchain
         Subchain currentSubchain = { };
         currentSubchain.polygon = i;
+        // current endpoint
+        Endpoint currentEndpoint = { };
+        currentEndpoint.polygon = i;
+        currentEndpoint.polygonVertexIndex = leftMostVertex;
+
+        size_t firstEndpointIndex = endpoints.size();   // index to the first endpoint created for this polygon, as we will need it later on
+
+        // we terminate once a subchain ends where we started
+        size_t currentVertex = leftMostVertex;
         while(subChainEndVertex != leftMostVertex)
         {
             size_t nextVertex = succ(currentVertex, currentPolygon);
@@ -313,21 +321,45 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
                 }
                 subchains.push_back(currentSubchain);
 
-                // set new subchain start vertex and continue
-                currentSubchain = { };
-                currentSubchain.polygon = i;
-                currentSubchain.vertices.push_back(currentVertex);
-                currentSubchain.currentEdge = INVALID_INDEX;
-               
-                increaseX = (currentPolygon[nextVertex].x > currentPolygon[currentVertex].x);                
-                subChainEnded = false;
+                // the current endpoint is the end vertex of the last chain and thus our start vertex
+                size_t endpointIndex = increaseX ? 0 : (currentSubchain.vertices.size() - 1);
+                assert(currentEndpoint.polygonVertexIndex == currentSubchain.vertices[endpointIndex]);
+                currentEndpoint.subchains[1] = subchains.size() - 1;
+                currentEndpoint.subchainVertexIndices[1] = endpointIndex;
+                // append the endpoint to the list
+                endpoints.push_back(currentEndpoint);
 
+                size_t nextEndpointIndex = increaseX ? (currentSubchain.vertices.size() - 1) : 0;
+
+                if (subChainEndVertex == leftMostVertex)
+                {
+                    // this is the last subchain - we need to put our information into the first endpoint
+                    endpoints[firstEndpointIndex].subchains[0] = subchains.size() - 1;
+                    endpoints[firstEndpointIndex].subchainVertexIndices[0]= nextEndpointIndex;
+                    
+                    assert(nextEndpointIndex == leftMostVertex);
+                    assert(endpoints[firstEndpointIndex].polygonVertexIndex == currentSubchain.vertices[nextEndpointIndex]);
+                }
+                else
+                {
+                    // the new endpoint is our end vertex
+                    currentEndpoint.subchains[0] = subchains.size() - 1;
+                    currentEndpoint.subchainVertexIndices[0] = nextEndpointIndex;
+                    currentEndpoint.polygonVertexIndex = currentVertex; 
+
+                    // set new subchain start vertex and continue
+                    currentSubchain = { };
+                    currentSubchain.polygon = i;
+                    currentSubchain.vertices.push_back(currentVertex);
+                    currentSubchain.currentEdge = INVALID_INDEX;
+                   
+                    increaseX = (currentPolygon[nextVertex].x > currentPolygon[currentVertex].x);                
+                    subChainEnded = false;
+                }
             }
 
             currentVertex = nextVertex;
         }
-
-        // #TODO: create list of Endpoints either during subchain creation or afterwards
     }
 
     assert(subchains.size() > 1);
@@ -392,7 +424,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
     size_t s1 = endpoints[0].subchains[0];
     size_t s2 = endpoints[0].subchains[1];
 
-    assert(endpoints[0].polygon = subchains[s1].polygon);
+    assert(endpoints[0].polygon == subchains[s1].polygon);
     assert(subchains[s1].polygon == subchains[s2].polygon);
     assert(subchains[s1].vertices.size() > 1);
     assert(subchains[s2].vertices.size() > 1);
