@@ -114,6 +114,8 @@ class SubchainCompareFunctor
         SubchainCompareFunctor(const SubchainCompareFunctor& other) = default;
         SubchainCompareFunctor& operator=(const SubchainCompareFunctor& other) = default;
 
+        void SetSweepLineCoord(float s) { m_sweepLineCoord = s; }
+
         /// compares two subchains given by their index in the set of subchains with respect to an x-coordinate of the sweep line
         /// NOTE: this will increment the current edge of the subchains in order to progress along the subchain according to the sweep line x-coordinate
         /// Make sure that consecutive calls to this function with the same set of subchains have mononously increasing values of sweepLineCoord
@@ -146,6 +148,7 @@ class SubchainCompareFunctor
                 float x2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x;
                 float y2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].y;
 
+                // #TODO: doesn't this go wrong for vertical edges?
                 assert(x1 != x2);
                 assert(m_sweepLineCoord >= x1);
                 assert(m_sweepLineCoord <= x2);
@@ -172,6 +175,7 @@ class SubchainCompareFunctor
                 float x2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x;
                 float y2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].y;
 
+                // #TODO: doesn't this go wrong for vertical edges?
                 assert(x1 != x2);
                 assert(m_sweepLineCoord >= x1);
                 assert(m_sweepLineCoord <= x2);
@@ -287,6 +291,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         // current subchain
         Subchain currentSubchain = { };
         currentSubchain.polygon = i;
+        currentSubchain.currentEdge = INVALID_INDEX;
         // current endpoint
         Endpoint currentEndpoint = { };
         currentEndpoint.polygon = i;
@@ -342,7 +347,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
                     endpoints[firstEndpointIndex].subchains[0] = subchains.size() - 1;
                     endpoints[firstEndpointIndex].subchainVertexIndices[0]= nextEndpointIndex;
                     
-                    assert(nextEndpointIndex == leftMostVertex);
+                    assert(currentSubchain.vertices[nextEndpointIndex] == leftMostVertex);
                     assert(endpoints[firstEndpointIndex].polygonVertexIndex == currentSubchain.vertices[nextEndpointIndex]);
                 }
                 else
@@ -457,14 +462,16 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
     // step 4: perform plane sweep from left to right
 
+    SubchainCompareFunctor compare(polygonSet, subchains, 0.f);
+
     for (size_t sweepLineIndex = 1; sweepLineIndex < endpoints.size(); ++sweepLineIndex)
     {
         // get the next subchain endpoint v_i
         Endpoint& currentEndpoint = endpoints[sweepLineIndex];
 
         // curent sweep line x-coordinate
-        float sweepLineCoord = (*(polygonSet[currentEndpoint.polygon]))[currentEndpoint.polygonVertexIndex].y;
-        SubchainCompareFunctor compare(polygonSet, subchains, sweepLineCoord);
+        float sweepLineCoord = (*(polygonSet[currentEndpoint.polygon]))[currentEndpoint.polygonVertexIndex].x;
+        compare.SetSweepLineCoord(sweepLineCoord);
 
         // check if both subchains of this endpoint have already been visited - if so, remove them from the list of ordered subchains and continue
         if ((subchains[currentEndpoint.subchains[0]].currentEdge != INVALID_INDEX) && subchains[currentEndpoint.subchains[1]].currentEdge != INVALID_INDEX)
@@ -498,6 +505,16 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         bool s1Inserted = subchains[s1].currentEdge != INVALID_INDEX;
         bool s2Inserted = subchains[s2].currentEdge != INVALID_INDEX;
 
+        // we will insert the new subchains later and in order to use the binary search, we set their current edge to 0
+        if (!s1Inserted)
+        {
+            subchains[s1].currentEdge = 0;
+        }
+        if (!s2Inserted)
+        {
+            subchains[s2].currentEdge = 0;
+        }
+
         // find position in subchain order
         // this will either give us the position of the inserted subchain or the position where we need to insert if none is inserted
         auto positionIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s2Inserted ? s2 : s1, compare);
@@ -510,18 +527,23 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
             neighbor = positionIterator - 1;
 
             size_t polygon = subchains[*neighbor].polygon;
-            // check in the list of subchains for this specific polygon to to know how many subchains are above the current subchain
-            auto polygonIterator = std::lower_bound(orderedSubchainsForPolygons[polygon].begin(), orderedSubchainsForPolygons[polygon].end(), *neighbor, compare);
-            assert(polygonIterator != orderedSubchainsForPolygons[polygon].end());
-            size_t numAbove = std::distance(orderedSubchainsForPolygons[polygon].begin(), polygonIterator) + 1;
-            // if odd: set the parent to the polygon, else set it to the parent of the polygon
-            if (numAbove % 2 == 1)
+            
+            // only proceed if the neighbor is a different polygon
+            if (polygon != currentEndpoint.polygon)
             {
-                parents[currentEndpoint.polygon] = polygon;
-            }
-            else
-            {
-                parents[currentEndpoint.polygon] = parents[polygon];
+                // check in the list of subchains for this specific polygon to to know how many subchains are above the current subchain
+                auto polygonIterator = std::lower_bound(orderedSubchainsForPolygons[polygon].begin(), orderedSubchainsForPolygons[polygon].end(), *neighbor, compare);
+                assert(polygonIterator != orderedSubchainsForPolygons[polygon].end());
+                size_t numAbove = std::distance(orderedSubchainsForPolygons[polygon].begin(), polygonIterator) + 1;
+                // if odd: set the parent to the polygon, else set it to the parent of the polygon
+                if (numAbove % 2 == 1)
+                {
+                    parents[currentEndpoint.polygon] = polygon;
+                }
+                else
+                {
+                    parents[currentEndpoint.polygon] = parents[polygon];
+                }
             }
         }
 
@@ -538,7 +560,6 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
             *positionIterator = s2;
             *polygonIterator = s2;
-            subchains[s2].currentEdge = 0;
         }
         else if (s2Inserted)
         {
@@ -547,7 +568,6 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
             *positionIterator = s1;
             *polygonIterator = s1;
-            subchains[s1].currentEdge = 0;
         }
         else
         {
@@ -561,9 +581,6 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
             orderedSubchains.insert(positionIterator, s2);
             orderedSubchainsForPolygons[currentEndpoint.polygon].insert(polygonIterator, s2);
-
-            subchains[s1].currentEdge = 0;
-            subchains[s2].currentEdge = 0;
         }
 
         // #TODO: handle degenerate cases? paper is not really clear about this

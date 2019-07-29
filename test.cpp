@@ -17,16 +17,33 @@ void PrintPolygonSet(const PolygonSet& polySet)
     }
 }
 
+void PrintParents(const std::vector<size_t>& parents)
+{
+    std::cout << std::endl;
+    for (size_t i = 0; i < parents.size(); ++i)
+    {
+        std::cout << "Parent(" << i << ") = ";
+        if (parents[i] == static_cast<size_t>(-1))
+        {
+            std::cout << "none" << std::endl;
+        }
+        else
+        {
+            std::cout << parents[i] << std::endl;
+        }    
+    }
+    std::cout << std::endl;
+}
+
 #define TEST_CONFIGURATION_1
 #define TEST_CONFIGURATION_2
 #define TEST_CONFIGURATION_3
 #define TEST_CONFIGURATION_4
 #define TEST_CONFIGURATION_5
 
-//#TODO: once decided how the output should look like, add in asserts to check for the correct graph
-
 int main()
 {
+    std::vector<size_t> parentsResult;
 #ifdef TEST_CONFIGURATION_1
     // test 1: two nested triangle in CCW orientation
     std::cout << std::endl << " TEST 1A " << std::endl << "-----" << std::endl;
@@ -37,7 +54,13 @@ int main()
 
     PrintPolygonSet(polySet1);
 
-    PolygonNesting(polySet1);
+    parentsResult = PolygonNesting(polySet1);
+
+    // the parent of the second polygon should be the first
+    assert(parentsResult[0] == static_cast<size_t>(-1));
+    assert(parentsResult[1] == 0);
+
+    PrintParents(parentsResult);
 
     // test 2: invert orientation of both polygons to CW
     std::cout << std::endl << " TEST 1B " << std::endl << "-----" << std::endl;
@@ -46,7 +69,12 @@ int main()
 
     PrintPolygonSet(polySet1);
 
-    PolygonNesting(polySet1);
+    parentsResult = PolygonNesting(polySet1);
+    // the parent of the second polygon should be the first
+    assert(parentsResult[0] == static_cast<size_t>(-1));
+    assert(parentsResult[1] == 0);
+
+    PrintParents(parentsResult);
 
     // test 3: outer orientation is CCW, inner is CW 
     std::cout << std::endl << " TEST 1C " << std::endl << "-----" << std::endl;
@@ -54,7 +82,12 @@ int main()
 
     PrintPolygonSet(polySet1);
 
-    PolygonNesting(polySet1);
+    parentsResult = PolygonNesting(polySet1);
+    // the parent of the second polygon should be the first
+    assert(parentsResult[0] == static_cast<size_t>(-1));
+    assert(parentsResult[1] == 0);
+
+    PrintParents(parentsResult);
 #endif
 
 #ifdef TEST_CONFIGURATION_2
@@ -66,7 +99,11 @@ int main()
 
     PrintPolygonSet(polySet2);
 
-    PolygonNesting(polySet2);
+    parentsResult = PolygonNesting(polySet2);
+
+    assert(parentsResult[0] == static_cast<size_t>(-1));
+
+    PrintParents(parentsResult);
 #endif
 
 #ifdef TEST_CONFIGURATION_3
@@ -82,7 +119,15 @@ int main()
 
     PrintPolygonSet(polySet3);
 
-    PolygonNesting(polySet3); 
+    parentsResult = PolygonNesting(polySet3); 
+
+    assert(parentsResult[0] == static_cast<size_t>(-1));
+    assert(parentsResult[1] == static_cast<size_t>(-1));
+    assert(parentsResult[2] == 1);
+    assert(parentsResult[3] == 2);
+    assert(parentsResult[4] == 2);
+
+    PrintParents(parentsResult);
 #endif
 
 #ifdef TEST_CONFIGURATION_4
@@ -97,7 +142,14 @@ int main()
 
     PrintPolygonSet(polySet4);
 
-    PolygonNesting(polySet4);
+    parentsResult = PolygonNesting(polySet4);
+
+    assert(parentsResult[0] == static_cast<size_t>(-1));
+    assert(parentsResult[1] == 0);
+    assert(parentsResult[2] == 0);
+    assert(parentsResult[3] == 1);
+
+    PrintParents(parentsResult);
 #endif
 
 #ifdef TEST_CONFIGURATION_5
@@ -110,7 +162,12 @@ int main()
 
     PrintPolygonSet(polySet5);
 
-    PolygonNesting(polySet5); 
+    parentsResult = PolygonNesting(polySet5); 
+
+    assert(parentsResult[0] == static_cast<size_t>(-1));
+    assert(parentsResult[1] == 0);
+
+    PrintParents(parentsResult);
 #endif
 
     return 0;
