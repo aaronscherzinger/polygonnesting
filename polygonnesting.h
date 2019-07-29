@@ -268,14 +268,15 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         auto convexityTest = (vertexOrder[i] == VertexOrder::CCW) ? &LeftTurnCollinear : &RightTurnCollinear;
 
         // we look for the leftmost vertex as it is a guaranteed starting point of a subchain
+        // if two vertices have the same x-coordinate, we choose the one with the higher y-coordinate
         size_t leftMostVertex = 0;   
-        float minX = currentPolygon[0].x;     
         for (size_t currentVertex = 1; currentVertex < currentPolygon.size(); ++currentVertex)
         {
-            if (currentPolygon[currentVertex].x < minX)
+            if ((currentPolygon[currentVertex].x < currentPolygon[leftMostVertex].x) 
+                || ((currentPolygon[currentVertex].x == currentPolygon[leftMostVertex].x) 
+                    && (currentPolygon[currentVertex].y > currentPolygon[leftMostVertex].y)))
             {
                 leftMostVertex = currentVertex;
-                minX = currentPolygon[currentVertex].x;
             }
         }
 
@@ -283,7 +284,8 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         // subchain ends: 
         // - when the convex polygonal line ends (i.e., at a reflex vertex)
         // - when the next vertex would break the convex chain (i.e., connecting the last to the first vertex would lead to a reflex angle)
-        // - when the next vertex would break the subchain (i.e., x-monotony of the chain)
+        // - when the next vertex would break the subchain (i.e., strict (!) x-monotony of the chain)
+        // note: if there are multiple consecutive vertices with the same x-coordinate, we create a degenerated subchain
         size_t subChainEndVertex = currentPolygon.size();   // end vertex of the current subchain (in the beginning undefined)
         bool subChainEnded = false;                         // flag that is se when one of the terminating conditions for the current subchain is met
         bool increaseX = true;                              // for checking x-monotony (in the beginning, x increases as we start with the leftmost vertex)
@@ -304,16 +306,18 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         while(subChainEndVertex != leftMostVertex)
         {
             size_t nextVertex = succ(currentVertex, currentPolygon);
+
+            // #TODO: add handling of degenerated vertices: put all consecutive degenerated edges in a degenerated subchain
             
             // check conditions for ending subchain
             if (    // 1. we are back at the beginning
                     (currentVertex == leftMostVertex && subChainEndVertex != currentPolygon.size())
-                    // 2. current vertex is a reflex vertex - convex polygonal line ends, therefore also the subchain
+                    // 2. current vertex is a reflex vertex (or collinear) - convex polygonal line ends, therefore also the subchain
                     ||  (!convexityTest(currentPolygon[pred(currentVertex, currentPolygon)], currentPolygon[currentVertex], currentPolygon[nextVertex]))
                     // 3. next vertex breaks the convex chain - we need to terminate the polygonal chain
                     ||  ((currentSubchain.vertices.size() > 1) && !convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
-                    // 4. next vertex breaks the monotony
-                    ||  ((increaseX && currentPolygon[nextVertex].x < currentPolygon[currentVertex].x) || (!increaseX && currentPolygon[nextVertex].x > currentPolygon[currentVertex].x))
+                    // 4. next vertex breaks the strict monotony
+                    ||  ((increaseX && currentPolygon[nextVertex].x <= currentPolygon[currentVertex].x) || (!increaseX && currentPolygon[nextVertex].x >= currentPolygon[currentVertex].x))
                 )
             {
                 subChainEnded = true;
@@ -431,6 +435,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
     std::fill(parents.begin(), parents.end(), INVALID_INDEX);
 
     // insert the two first subchains - make sure to take into account the "above" relationship when inserting them
+    // #TODO: account for degenerated subchains
     size_t s1 = endpoints[0].subchains[0];
     size_t s2 = endpoints[0].subchains[1];
 
@@ -506,6 +511,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         bool s2Inserted = subchains[s2].currentEdge != INVALID_INDEX;
 
         // we will insert the new subchains later and in order to use the binary search, we set their current edge to 0
+        // #TODO: account for degenerated subchains - do not set their edge index!
         if (!s1Inserted)
         {
             subchains[s1].currentEdge = 0;
@@ -517,6 +523,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
         // find position in subchain order
         // this will either give us the position of the inserted subchain or the position where we need to insert if none is inserted
+        // #TODO: account for degenerated subchain - if one of the subchains for this endpoint is degenerated, use the other one
         auto positionIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s2Inserted ? s2 : s1, compare);
 
         // step 4(b)
@@ -553,6 +560,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
                 orderedSubchainsForPolygons[currentEndpoint.polygon].end(), s2Inserted ? s2 : s1, compare);
 
         // in case one of the subchains has already been visited we replace it by the other one in both orderings
+        // #TODO: account for degenerated subchains - only insert the non-degenerated subchain!
         if (s1Inserted)
         {
             assert(positionIterator != orderedSubchains.end());
@@ -582,12 +590,9 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
             orderedSubchains.insert(positionIterator, s2);
             orderedSubchainsForPolygons[currentEndpoint.polygon].insert(polygonIterator, s2);
         }
-
-        // #TODO: handle degenerate cases? paper is not really clear about this
-
     }
 
-    // #TODO: std::move gives clang error here...
+    // #TODO: use better representation for result...
     return parents;
 }
 
