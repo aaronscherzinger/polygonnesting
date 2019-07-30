@@ -32,6 +32,8 @@ struct Subchain
     std::vector<size_t> vertices;   ///< indices into the polygon's vertex list
 
     size_t currentEdge;             ///< index into the polygon's vertex list for the left vertex of the edge in the subchain currently intersected by the vertical sweep line
+
+    bool degenerate;                ///< is set to true if the subchain contains only vertical edges
 };
 
 // struct for the ordered list of endpoints
@@ -148,7 +150,6 @@ class SubchainCompareFunctor
                 float x2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x;
                 float y2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].y;
 
-                // #TODO: doesn't this go wrong for vertical edges?
                 assert(x1 != x2);
                 assert(m_sweepLineCoord >= x1);
                 assert(m_sweepLineCoord <= x2);
@@ -175,7 +176,6 @@ class SubchainCompareFunctor
                 float x2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x;
                 float y2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].y;
 
-                // #TODO: doesn't this go wrong for vertical edges?
                 assert(x1 != x2);
                 assert(m_sweepLineCoord >= x1);
                 assert(m_sweepLineCoord <= x2);
@@ -286,14 +286,21 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         // - when the next vertex would break the convex chain (i.e., connecting the last to the first vertex would lead to a reflex angle)
         // - when the next vertex would break the subchain (i.e., strict (!) x-monotony of the chain)
         // note: if there are multiple consecutive vertices with the same x-coordinate, we create a degenerated subchain
+        enum class SubchainDirection
+        {
+            LEFT,       // subchain's x-coordinate is strictly increasing
+            RIGHT       // subchain's x-coordinate is strictly decreasing
+        };
+
         size_t subChainEndVertex = currentPolygon.size();   // end vertex of the current subchain (in the beginning undefined)
         bool subChainEnded = false;                         // flag that is se when one of the terminating conditions for the current subchain is met
-        bool increaseX = true;                              // for checking x-monotony (in the beginning, x increases as we start with the leftmost vertex)
+        SubchainDirection currentDirection = SubchainDirection::LEFT;
 
         // current subchain
         Subchain currentSubchain = { };
         currentSubchain.polygon = i;
         currentSubchain.currentEdge = INVALID_INDEX;
+        currentSubchain.degenerate = false;
         // current endpoint
         Endpoint currentEndpoint = { };
         currentEndpoint.polygon = i;
@@ -301,23 +308,63 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
         size_t firstEndpointIndex = endpoints.size();   // index to the first endpoint created for this polygon, as we will need it later on
 
+        currentSubchain.vertices.push_back(leftMostVertex);
+        size_t currentVertex = succ(leftMostVertex, currentPolygon);
         // we terminate once a subchain ends where we started
-        size_t currentVertex = leftMostVertex;
         while(subChainEndVertex != leftMostVertex)
         {
+            assert(currentSubchain.vertices.size() > 0);
+
             size_t nextVertex = succ(currentVertex, currentPolygon);
 
-            // #TODO: add handling of degenerated vertices: put all consecutive degenerated edges in a degenerated subchain
-            
+            // if we just started a subchain, we check its direction
+            if (currentSubchain.vertices.size() == 1)
+            {
+                currentSubchain.degenerate = false;
+                float firstX = currentPolygon[currentSubchain.vertices[0]].x;
+                float secondX = currentPolygon[currentVertex].x;
+                if (firstX < secondX)
+                {
+                    currentDirection = SubchainDirection::LEFT;
+                }
+                else if (firstX > secondX)
+                {
+                    currentDirection = SubchainDirection::RIGHT;
+                }
+                else
+                {
+                    currentSubchain.degenerate = true;
+                    // we still set the direction to reverse the vertex order within the subchain if necessary
+                    float firstY = currentPolygon[currentSubchain.vertices[0]].y;
+                    float secondY = currentPolygon[currentVertex].y;
+                    if (firstY > secondY)
+                    {
+                        currentDirection = SubchainDirection::LEFT;
+                    }
+                    else
+                    {
+                        assert(firstY != secondY);
+                        currentDirection = SubchainDirection::RIGHT;
+                    }
+                }
+            }
+
             // check conditions for ending subchain
             if (    // 1. we are back at the beginning
                     (currentVertex == leftMostVertex && subChainEndVertex != currentPolygon.size())
-                    // 2. current vertex is a reflex vertex (or collinear) - convex polygonal line ends, therefore also the subchain
-                    ||  (!convexityTest(currentPolygon[pred(currentVertex, currentPolygon)], currentPolygon[currentVertex], currentPolygon[nextVertex]))
-                    // 3. next vertex breaks the convex chain - we need to terminate the polygonal chain
-                    ||  ((currentSubchain.vertices.size() > 1) && !convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
-                    // 4. next vertex breaks the strict monotony
-                    ||  ((increaseX && currentPolygon[nextVertex].x <= currentPolygon[currentVertex].x) || (!increaseX && currentPolygon[nextVertex].x >= currentPolygon[currentVertex].x))
+                    // 2. we have a degenerate subchain and the next vertex would not have the same x-coordinate
+                    || (currentSubchain.degenerate && (currentPolygon[nextVertex].x != currentPolygon[currentVertex].x))
+                    // 3. not degenerate, current vertex is a reflex vertex (or collinear) - convex polygonal line ends, therefore also the subchain
+                    ||  (!currentSubchain.degenerate && 
+                        !convexityTest(currentPolygon[pred(currentVertex, currentPolygon)], currentPolygon[currentVertex], currentPolygon[nextVertex]))
+                    // 4. next vertex breaks the convex chain - we need to terminate the polygonal chain
+                    ||  (!currentSubchain.degenerate && 
+                        (currentSubchain.vertices.size() > 1) 
+                        && !convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
+                    // 5. next vertex breaks the strict monotony
+                    ||  (!currentSubchain.degenerate &&
+                        (((currentDirection == SubchainDirection::LEFT) && currentPolygon[nextVertex].x <= currentPolygon[currentVertex].x) 
+                        || ((currentDirection == SubchainDirection::RIGHT) && currentPolygon[nextVertex].x >= currentPolygon[currentVertex].x)))
                 )
             {
                 subChainEnded = true;
@@ -329,21 +376,21 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
             if (subChainEnded)
             {
                 // subchain ended - insert into list of subchains
-                if (!increaseX)
+                if (currentDirection == SubchainDirection::RIGHT)
                 {
                     std::reverse(currentSubchain.vertices.begin(), currentSubchain.vertices.end());
                 }
                 subchains.push_back(currentSubchain);
 
                 // the current endpoint is the end vertex of the last chain and thus our start vertex
-                size_t endpointIndex = increaseX ? 0 : (currentSubchain.vertices.size() - 1);
+                size_t endpointIndex = (currentDirection == SubchainDirection::LEFT) ? 0 : (currentSubchain.vertices.size() - 1);
                 assert(currentEndpoint.polygonVertexIndex == currentSubchain.vertices[endpointIndex]);
                 currentEndpoint.subchains[1] = subchains.size() - 1;
                 currentEndpoint.subchainVertexIndices[1] = endpointIndex;
                 // append the endpoint to the list
                 endpoints.push_back(currentEndpoint);
 
-                size_t nextEndpointIndex = increaseX ? (currentSubchain.vertices.size() - 1) : 0;
+                size_t nextEndpointIndex = (currentDirection == SubchainDirection::LEFT) ? (currentSubchain.vertices.size() - 1) : 0;
 
                 if (subChainEndVertex == leftMostVertex)
                 {
@@ -367,7 +414,6 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
                     currentSubchain.vertices.push_back(currentVertex);
                     currentSubchain.currentEdge = INVALID_INDEX;
                    
-                    increaseX = (currentPolygon[nextVertex].x > currentPolygon[currentVertex].x);                
                     subChainEnded = false;
                 }
             }
@@ -385,6 +431,10 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         for (auto i : s.vertices)
         {
             std::cout << i << " ";
+        }
+        if (s.degenerate)
+        {
+            std::cout << "(degenerate)";
         }
         std::cout << std::endl;
     }
@@ -435,7 +485,6 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
     std::fill(parents.begin(), parents.end(), INVALID_INDEX);
 
     // insert the two first subchains - make sure to take into account the "above" relationship when inserting them
-    // #TODO: account for degenerated subchains
     size_t s1 = endpoints[0].subchains[0];
     size_t s2 = endpoints[0].subchains[1];
 
@@ -446,19 +495,37 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
     size_t p = endpoints[0].polygon;
 
-    if ((*(polygonSet[p]))[subchains[s1].vertices[1]].y > (*(polygonSet[p]))[subchains[s2].vertices[1]].y)
+    // only insert non-degenerate subchains
+    if (subchains[s1].degenerate)
+    {
+        orderedSubchains.push_back(s2);
+    }
+    else if (subchains[s2].degenerate)
     {
         orderedSubchains.push_back(s1);
-        orderedSubchains.push_back(s2);
     }
     else
     {
-        orderedSubchains.push_back(s2);
-        orderedSubchains.push_back(s1);
+        // insert the subchain above the other one first
+        if ((*(polygonSet[p]))[subchains[s1].vertices[1]].y > (*(polygonSet[p]))[subchains[s2].vertices[1]].y)
+        {
+            orderedSubchains.push_back(s1);
+            orderedSubchains.push_back(s2);
+        }
+        else
+        {
+            orderedSubchains.push_back(s2);
+            orderedSubchains.push_back(s1);
+        }
     }
 
+    assert(orderedSubchains.size() > 0); // there is at least one non-degenerate subchain sine we start at the top left vertex
+
     orderedSubchainsForPolygons[p].push_back(orderedSubchains[0]);
-    orderedSubchainsForPolygons[p].push_back(orderedSubchains[1]);
+    if (orderedSubchains.size() > 1)
+    {
+        orderedSubchainsForPolygons[p].push_back(orderedSubchains[1]);
+    }
 
     // we remember the current edge where the sweep line stands by its start vertex
     // (the initial INVALID_INDEX means that a subchains has not been visited yet)
@@ -478,32 +545,34 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         float sweepLineCoord = (*(polygonSet[currentEndpoint.polygon]))[currentEndpoint.polygonVertexIndex].x;
         compare.SetSweepLineCoord(sweepLineCoord);
 
+        // #TODO: account for degenerate subchains
         // check if both subchains of this endpoint have already been visited - if so, remove them from the list of ordered subchains and continue
         if ((subchains[currentEndpoint.subchains[0]].currentEdge != INVALID_INDEX) && subchains[currentEndpoint.subchains[1]].currentEdge != INVALID_INDEX)
         {
-                // find the two subchains and remove them from the list of ordered subchains
-                auto firstIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), currentEndpoint.subchains[0], compare);
-                assert(firstIterator != orderedSubchains.end());
-                orderedSubchains.erase(firstIterator);
-                
-                auto secondIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), currentEndpoint.subchains[1], compare);
-                assert(secondIterator != orderedSubchains.end());
-                orderedSubchains.erase(secondIterator);
+            // find the two subchains and remove them from the list of ordered subchains
+            auto firstIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), currentEndpoint.subchains[0], compare);
+            assert(firstIterator != orderedSubchains.end());
+            orderedSubchains.erase(firstIterator);
+            
+            auto secondIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), currentEndpoint.subchains[1], compare);
+            assert(secondIterator != orderedSubchains.end());
+            orderedSubchains.erase(secondIterator);
 
-                // do the same for the list of ordered subchains for the specific polygon of these subchains
-                auto firstPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), currentEndpoint.subchains[0], compare);
-                assert(firstPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
-                orderedSubchainsForPolygons[currentEndpoint.polygon].erase(firstPolygonIterator);
+            // do the same for the list of ordered subchains for the specific polygon of these subchains
+            auto firstPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), currentEndpoint.subchains[0], compare);
+            assert(firstPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
+            orderedSubchainsForPolygons[currentEndpoint.polygon].erase(firstPolygonIterator);
 
-                auto secondPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), currentEndpoint.subchains[1], compare);
-                assert(secondPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
-                orderedSubchainsForPolygons[currentEndpoint.polygon].erase(secondPolygonIterator);
+            auto secondPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), currentEndpoint.subchains[1], compare);
+            assert(secondPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
+            orderedSubchainsForPolygons[currentEndpoint.polygon].erase(secondPolygonIterator);
 
-                continue;
+            continue;
         }
 
         // step 4(a)
         
+        // #TODO: account for degenerate subchains
         // we can either have one subchain inserted or none of them - check which is the case
         size_t s1 = currentEndpoint.subchains[0];
         size_t s2 = currentEndpoint.subchains[1];
