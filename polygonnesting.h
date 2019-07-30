@@ -15,7 +15,7 @@ struct Vertex2D
     float y;
 };
 
-// #TODO: replae by more flexible implementation??
+// #TODO: replace by more flexible implementation??
 using Polygon = std::vector<Vertex2D>;
 using PolygonSet = std::vector<Polygon*>;
 
@@ -232,12 +232,7 @@ class SubchainCompareFunctor
         float m_sweepLineCoord;
 };
 
-// #TODO: template this by: Polygon Type, Vertex Type, coordinate Type?
-// #TODO: member functions to add polygon (by pointers) and clear everything
-// #TODO: generic implementation, check paper, or else:
-// #TODO: set functors that get x and y from a vertex, get a specific vertex by index from a polygon, get the number of vertices from a polygon
-// #TODO: maybe optional optionally allow to directly use point operator on vertices
-// #TODO: how to handle succ, pred, getting the vertex order?
+// #TODO: make this more generic (use templates / std::function ?) 
 
 std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 {
@@ -529,8 +524,15 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
     // we remember the current edge where the sweep line stands by its start vertex
     // (the initial INVALID_INDEX means that a subchains has not been visited yet)
-    subchains[s1].currentEdge = 0;
-    subchains[s2].currentEdge = 0;
+    if (!subchains[s1].degenerate)
+    {
+        subchains[s1].currentEdge = 0;
+    }
+    
+    if (!subchains[s2].degenerate)
+    {
+        subchains[s2].currentEdge = 0;
+    }
 
     // step 4: perform plane sweep from left to right
 
@@ -540,60 +542,70 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
     {
         // get the next subchain endpoint v_i
         Endpoint& currentEndpoint = endpoints[sweepLineIndex];
+        // get the subchains connected to this endpoint
+        size_t s1 = currentEndpoint.subchains[0];
+        size_t s2 = currentEndpoint.subchains[1];
+        bool s1Inserted = (subchains[s1].currentEdge != INVALID_INDEX);
+        bool s2Inserted = (subchains[s2].currentEdge != INVALID_INDEX);
+        bool s1Degenerate = subchains[s1].degenerate;
+        bool s2Degenerate = subchains[s2].degenerate;
 
         // curent sweep line x-coordinate
         float sweepLineCoord = (*(polygonSet[currentEndpoint.polygon]))[currentEndpoint.polygonVertexIndex].x;
         compare.SetSweepLineCoord(sweepLineCoord);
 
-        // #TODO: account for degenerate subchains
-        // check if both subchains of this endpoint have already been visited - if so, remove them from the list of ordered subchains and continue
-        if ((subchains[currentEndpoint.subchains[0]].currentEdge != INVALID_INDEX) && subchains[currentEndpoint.subchains[1]].currentEdge != INVALID_INDEX)
+        // check if both subchains of this endpoint have already been visited (or are degenerate) - if so, remove them from the list of ordered subchains and continue
+        if ((s1Degenerate || s1Inserted) && (s2Degenerate || s2Inserted))
         {
-            // find the two subchains and remove them from the list of ordered subchains
-            auto firstIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), currentEndpoint.subchains[0], compare);
-            assert(firstIterator != orderedSubchains.end());
-            orderedSubchains.erase(firstIterator);
+            if (!s1Degenerate)
+            {
+                auto firstIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s1, compare);
+                assert(firstIterator != orderedSubchains.end());
+                orderedSubchains.erase(firstIterator);
+
+                auto firstPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), s1, compare);
+                assert(firstPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
+                orderedSubchainsForPolygons[currentEndpoint.polygon].erase(firstPolygonIterator);
+            }
             
-            auto secondIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), currentEndpoint.subchains[1], compare);
-            assert(secondIterator != orderedSubchains.end());
-            orderedSubchains.erase(secondIterator);
+            if (!s2Degenerate)
+            {
+                auto secondIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s2, compare);
+                assert(secondIterator != orderedSubchains.end());
+                orderedSubchains.erase(secondIterator);
 
-            // do the same for the list of ordered subchains for the specific polygon of these subchains
-            auto firstPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), currentEndpoint.subchains[0], compare);
-            assert(firstPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
-            orderedSubchainsForPolygons[currentEndpoint.polygon].erase(firstPolygonIterator);
-
-            auto secondPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), currentEndpoint.subchains[1], compare);
-            assert(secondPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
-            orderedSubchainsForPolygons[currentEndpoint.polygon].erase(secondPolygonIterator);
+                auto secondPolygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), orderedSubchainsForPolygons[currentEndpoint.polygon].end(), s2, compare);
+                assert(secondPolygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
+                orderedSubchainsForPolygons[currentEndpoint.polygon].erase(secondPolygonIterator);
+            }
 
             continue;
         }
 
         // step 4(a)
         
-        // #TODO: account for degenerate subchains
         // we can either have one subchain inserted or none of them - check which is the case
-        size_t s1 = currentEndpoint.subchains[0];
-        size_t s2 = currentEndpoint.subchains[1];
-        bool s1Inserted = subchains[s1].currentEdge != INVALID_INDEX;
-        bool s2Inserted = subchains[s2].currentEdge != INVALID_INDEX;
+        // we need to use the non-degenerate subchain if one is degenerate
+        size_t subchainToSearch = s1;
+        if (s1Degenerate || s2Inserted)
+        {
+            subchainToSearch = s2;
+        }
 
         // we will insert the new subchains later and in order to use the binary search, we set their current edge to 0
-        // #TODO: account for degenerated subchains - do not set their edge index!
-        if (!s1Inserted)
+        if (!s1Degenerate && !s1Inserted)
         {
             subchains[s1].currentEdge = 0;
         }
-        if (!s2Inserted)
+
+        if (!s2Degenerate && !s2Inserted)
         {
             subchains[s2].currentEdge = 0;
         }
 
         // find position in subchain order
         // this will either give us the position of the inserted subchain or the position where we need to insert if none is inserted
-        // #TODO: account for degenerated subchain - if one of the subchains for this endpoint is degenerated, use the other one
-        auto positionIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s2Inserted ? s2 : s1, compare);
+        auto positionIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), subchainToSearch, compare);
 
         // step 4(b)
         auto neighbor = orderedSubchains.end();
@@ -626,11 +638,10 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         // step 4(c)
         // find the position in the polygon ordering as well
         auto polygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), 
-                orderedSubchainsForPolygons[currentEndpoint.polygon].end(), s2Inserted ? s2 : s1, compare);
+                orderedSubchainsForPolygons[currentEndpoint.polygon].end(), subchainToSearch, compare);
 
         // in case one of the subchains has already been visited we replace it by the other one in both orderings
-        // #TODO: account for degenerated subchains - only insert the non-degenerated subchain!
-        if (s1Inserted)
+        if (s1Inserted && !s2Degenerate)
         {
             assert(positionIterator != orderedSubchains.end());
             assert(polygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
@@ -638,7 +649,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
             *positionIterator = s2;
             *polygonIterator = s2;
         }
-        else if (s2Inserted)
+        else if (s2Inserted && !s1Degenerate)
         {
             assert(positionIterator != orderedSubchains.end());
             assert(polygonIterator != orderedSubchainsForPolygons[currentEndpoint.polygon].end());
@@ -648,16 +659,26 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         }
         else
         {
-            // otherwise, we insert both in the ordering
-            orderedSubchains.insert(positionIterator, s1);
-            orderedSubchainsForPolygons[currentEndpoint.polygon].insert(polygonIterator, s1);
+            // otherwise, we insert the subchains in the ordering
+            if (!s1Degenerate && !s1Inserted)
+            {
+                positionIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s1, compare);
+                polygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), 
+                    orderedSubchainsForPolygons[currentEndpoint.polygon].end(), s1, compare);
 
-            positionIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s2, compare);
-            polygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), 
-                orderedSubchainsForPolygons[currentEndpoint.polygon].end(), s2, compare);
+                orderedSubchains.insert(positionIterator, s1);
+                orderedSubchainsForPolygons[currentEndpoint.polygon].insert(polygonIterator, s1);
+            }
 
-            orderedSubchains.insert(positionIterator, s2);
-            orderedSubchainsForPolygons[currentEndpoint.polygon].insert(polygonIterator, s2);
+            if (!s2Degenerate && !s2Inserted)
+            {
+                positionIterator = std::lower_bound(orderedSubchains.begin(), orderedSubchains.end(), s2, compare);
+                polygonIterator = std::lower_bound(orderedSubchainsForPolygons[currentEndpoint.polygon].begin(), 
+                    orderedSubchainsForPolygons[currentEndpoint.polygon].end(), s2, compare);
+
+                orderedSubchains.insert(positionIterator, s2);
+                orderedSubchainsForPolygons[currentEndpoint.polygon].insert(polygonIterator, s2);
+            }
         }
     }
 
