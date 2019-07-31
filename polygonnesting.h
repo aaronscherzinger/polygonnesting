@@ -7,50 +7,23 @@
 #include <iostream>
 #endif
 
+
+// #TODO: put example implementation in different variations in test.cpp
+///////
+// Example Implementation
+///////
+
 // simple 2D vertex
-// #TODO: replace this by a more flexible implementation allowing arbitrary data and functors for retrieving X and Y coordinates
 struct Vertex2D
 {
     float x;
     float y;
 };
 
-// #TODO: replace by more flexible implementation??
 using Polygon = std::vector<Vertex2D>;
 using PolygonSet = std::vector<Polygon*>;
 
-enum class VertexOrder
-{
-    CCW,    // counter-clockwise orientation
-    CW      // clock-wise orientation
-};
-
-// struct for the list of subchains
-struct Subchain
-{
-    size_t polygon;                 ///< index into the polygon set for the polygon containing this subchain
-    std::vector<size_t> vertices;   ///< indices into the polygon's vertex list
-
-    size_t currentEdge;             ///< index into the polygon's vertex list for the left vertex of the edge in the subchain currently intersected by the vertical sweep line
-
-    bool degenerate;                ///< is set to true if the subchain contains only vertical edges
-};
-
-// struct for the ordered list of endpoints
-// an endpoint corresponds to the vertex of a specific polygon and connects two of it's subchains
-struct Endpoint
-{
-    // indices of the subchains in the global list of subchains
-    size_t subchains[2];
-    // indices into the subchains' vertex lists 
-    size_t subchainVertexIndices[2];
-    // index of the polygon
-    size_t polygon;
-    // index into the polygon's vertex list for the corresponding vertex
-    size_t polygonVertexIndex; 
-};
-
-/// Computes the winding order of the vertices of a polygon (#TODO: do this when computing the polygon instead of afterwards)
+/// Computes the winding order of the vertices of a polygon
 VertexOrder ComputeVertexOrder(const Polygon& p) {
     float area = 0;
     //begin with edge to the first vertex and then iterate through all edges
@@ -65,211 +38,335 @@ VertexOrder ComputeVertexOrder(const Polygon& p) {
     return (area > 0) ? VertexOrder::CCW : VertexOrder::CW;
 }
 
-/// Computes the orientation of three consecutive vertices 
-float OrientationTest(const Vertex2D& pa, const Vertex2D& pb, const Vertex2D& pc) {
-    float acx = pa.x - pc.x;
-    float bcx = pb.x - pc.x;
-    float acy = pa.y - pc.y;
-    float bcy = pb.y - pc.y;
+// functors for example implementation
+auto getVertexOrder = [](const Polygon* p) { return ComputeVertexOrder(*p); };
+auto getNumVertices = [](const Polygon* p) { return p->size(); };
+auto getVertex = [](const Polygon* p, size_t i) { return (*p)[i]; };
+auto getX = [](const Vertex2D& v) { return v.x; };
+auto getY = [](const Vertex2D& v) { return v.y; };
 
-    return acx * bcy - acy * bcx;
-}
+///////
+// End Example implementation
+///////
 
-/// Checks if vertex pc lies to the left of the directed line through vertices pa and pb or on the line
-bool LeftTurnCollinear(const Vertex2D& pa, const Vertex2D& pb, const Vertex2D& pc) {
-    return (OrientationTest(pa, pb, pc) >= 0);
-}
 
-/// Checks if vertex pc lies to the right of the directed line through vertices pa and pb or on the line
-bool RightTurnCollinear(const Vertex2D& pa, const Vertex2D& pb, const Vertex2D& pc) {
-    return (OrientationTest(pa, pb, pc) <= 0);
-}
-
-/// returns the cyclic successor index for a vertex index
-size_t succ(size_t vertexIndex, const Polygon& polygon)
+// VALUE_TYPE must support <, ==, >, <=, >=, +, -, *, /, negative values (e.g. float, double), comparison with 0 (e.g. x <= 0)
+//
+template<typename POLYGON_TYPE, typename VERTEX_TYPE, typename VALUE_TYPE = float>
+class PolygonNesting
 {
-    return (vertexIndex + 1) % polygon.size();
-}
-
-/// returns the cyclic predecessor index for a vertex index
-size_t pred(size_t vertexIndex, const Polygon& polygon)
-{
-    assert(polygon.size() > 2);
+public:
     
-    return (vertexIndex == 0) ? polygon.size() - 1 : vertexIndex - 1;
-}
+    // enum class for vertex order of polygons
+    enum class VertexOrder
+    {
+        CCW,    // counter-clockwise orientation
+        CW      // clock-wise orientation
+    };
 
-class SubchainCompareFunctor
-{
+    // alias names for functors that need to be provided for the template types
+    using GetVertexOrderFunctor = std::function<VertexOrder(const POLYGON_TYPE*)>;
+    using GetNumVerticesFunctor = std::function<size_t(const POLYGON_TYPE*)>;
+    using GetVertexFunctor = std::function<const VERTEX_TYPE&(const POLYGON_TYPE*,size_t)>;
+    using GetXFunctor = std::function<VALUE_TYPE(const VERTEX_TYPE&)>;
+    using GetYFunctor = std::function<VALUE_TYPE(const VERTEX_TYPE&)>;
+    
 
-    public:
+    PolygonNesting(GetVertexOrderFunctor f1, GetNumVerticesFunctor f2, GetVertexFunctor f3, GetXFunctor f4, GYFunctor f5);
+    PolygonNesting() = delete;
 
-        SubchainCompareFunctor(const PolygonSet& polygonSet, std::vector<Subchain>& subchains, float sweepLineCoord)
-        : m_polygonSet(polygonSet)
-        , m_subchains(subchains)
-        , m_sweepLineCoord(sweepLineCoord)
-        {
-        }
+    // #TODO: implement / delete copy and move constructor / assignment operator?
 
-        SubchainCompareFunctor() = delete;
+    void AddPolygon(const POLYGON_TYPE* polygon)
+    {
+        m_polygonSet.push_back(polygon);
+    }
+    
+    void Clear()
+    {
+        m_polygonSet.clear();
+        m_parents.clear();
+    }
 
-        SubchainCompareFunctor(const SubchainCompareFunctor& other) = default;
-        SubchainCompareFunctor& operator=(const SubchainCompareFunctor& other) = default;
+    void ComputePolygonNesting();
 
-        void SetSweepLineCoord(float s) { m_sweepLineCoord = s; }
+private:
 
-        /// compares two subchains given by their index in the set of subchains with respect to an x-coordinate of the sweep line
-        /// NOTE: this will increment the current edge of the subchains in order to progress along the subchain according to the sweep line x-coordinate
-        /// Make sure that consecutive calls to this function with the same set of subchains have mononously increasing values of sweepLineCoord
-        bool operator() (const size_t& a, const size_t& b) const
-        {
-            if (a == b)
-            {
-                return false;
-            }
+    //  ************************
+    //  internal data structures
+    //  ************************
 
-            auto& polygonA = *(m_polygonSet[m_subchains[a].polygon]);
-            auto& polygonB = *(m_polygonSet[m_subchains[b].polygon]);
-
-            // we need to compare the subchains regarding their y-coordinate of the intersection with the sweep line
-            while(polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x < m_sweepLineCoord)
-            {
-                m_subchains[a].currentEdge++;
-            }
-            assert(m_subchains[a].currentEdge < m_subchains[a].vertices.size());
-            // note: vertices [currentEdge - 1] and [currentEdge] correspond to the edge intersecting the sweep line
-            float yCoordA = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].y;
-            if (polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x > m_sweepLineCoord)
-            {
-                assert(m_subchains[a].currentEdge > 0);
-                // sweep line intersects the edge and not the vertex
-                // we can compute the intersection by linear interpolation
-                float x1 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge - 1]].x;
-                float y1 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge - 1]].y;
-
-                float x2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x;
-                float y2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].y;
-
-                assert(x1 != x2);
-                assert(m_sweepLineCoord >= x1);
-                assert(m_sweepLineCoord <= x2);
-
-                float ratio = (m_sweepLineCoord - x1) / (x2 - x1);
-                yCoordA = (1.f - ratio) * y1 + ratio * y2;
-            }
-
-            while(polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x < m_sweepLineCoord)
-            {
-                m_subchains[b].currentEdge++;
-            }
-            assert(m_subchains[b].currentEdge < m_subchains[b].vertices.size());
-            // note: vertices [currentEdge - 1] and [currentEdge] correspond to the edge intersecting the sweep line
-            float yCoordB = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].y;
-            if (polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x > m_sweepLineCoord)
-            {
-                assert(m_subchains[b].currentEdge > 0);
-                // sweep line intersects the edge and not the vertex
-                // we can compute the intersection by linear interpolation
-                float x1 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge - 1]].x;
-                float y1 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge - 1]].y;
-
-                float x2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x;
-                float y2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].y;
-
-                assert(x1 != x2);
-                assert(m_sweepLineCoord >= x1);
-                assert(m_sweepLineCoord <= x2);
-
-                float ratio = (m_sweepLineCoord - x1) / (x2 - x1);
-                yCoordB = (1.f - ratio) * y1 + ratio * y2;
-            }
-
-            if (yCoordA == yCoordB)
-            {
-                // if this happens, a shared endpoint of two subchains has been met
-                assert(polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x == m_sweepLineCoord);
-                assert(polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x == m_sweepLineCoord);
-                assert(m_subchains[a].polygon == m_subchains[b].polygon);
-
-                // this means that one of the following cases has happened:
-                // 1. we encounter the endpoint of one subchain that is the starting point of another one
-                // 2. we encounter the startpoint of two subchains
-                // 3. we encounter the endpoint of two subchains
-
-                // case 1: we always put the endpoint of one chain before the starting point of the next as this does not affect the y-order
-                if (m_subchains[a].currentEdge == 0 && m_subchains[b].currentEdge > 0)
-                {
-                    return true;
-                }
-                else if (m_subchains[b].currentEdge == 0 && m_subchains[a].currentEdge > 0)
-                {
-                    return false;
-                } 
-                else if (m_subchains[a].currentEdge == 0 && m_subchains[b].currentEdge == 0)
-                {
-                    // case 2: we put the subchain with the higher y-coordinate in the next vertex first
-                    assert(m_subchains[a].vertices.size() > 1);
-                    assert(m_subchains[b].vertices.size() > 1);
-
-                    return (polygonA[m_subchains[a].vertices[1]].y > polygonB[m_subchains[b].vertices[1]].y);
-                }
-                else 
-                {
-                    // case 3: we put the subchains with the higher y-coordinate in the preceding vertex first
-                    return (polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge - 1]].y > polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge - 1]].y);
-                }
-            }
-            else
-            {
-                return (yCoordA > yCoordB);
-            }
-        }
-
-    private:
-
-        const PolygonSet& m_polygonSet;
-        std::vector<Subchain>& m_subchains;
-        float m_sweepLineCoord;
-};
-
-// #TODO: make this more generic (use templates / std::function ?) 
-
-std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
-{
     constexpr size_t INVALID_INDEX = static_cast<size_t>(-1);
 
-    assert(!polygonSet.empty());
+    // struct for the list of subchains
+    struct Subchain
+    {
+        size_t polygon;                 ///< index into the polygon set for the polygon containing this subchain
+        std::vector<size_t> vertices;   ///< indices into the polygon's vertex list
+
+        size_t currentEdge;             ///< index into the polygon's vertex list for the left vertex of the edge in the subchain currently intersected by the vertical sweep line
+
+        bool degenerate;                ///< is set to true if the subchain contains only vertical edges
+    };
+
+    // endpoint struct for the ordered list of endpoints
+    // an endpoint corresponds to the vertex of a specific polygon and connects two of it's subchains
+    struct Endpoint
+    {
+        // indices of the subchains in the global list of subchains
+        size_t subchains[2];
+        // indices into the subchains' vertex lists 
+        size_t subchainVertexIndices[2];
+        // index of the polygon
+        size_t polygon;
+        // index into the polygon's vertex list for the corresponding vertex
+        size_t polygonVertexIndex; 
+    };
+
+    //  ****************
+    //  helper functions
+    //  ****************
+
+    /// returns the cyclic successor index for a vertex index
+    size_t succ(size_t vertexIndex, const POLYGON_TYPE* polygon)
+    {
+        return (vertexIndex + 1) % mf_GetNumVertices(polygon);
+    }
+
+    /// returns the cyclic predecessor index for a vertex index
+    size_t pred(size_t vertexIndex, const POLYGON_TYPE* polygon)
+    {
+        assert(mf_GetNumVertices(polygon) > 2);
+        
+        return (vertexIndex == 0) ? mf_GetNumVertices(polygon) - 1 : vertexIndex - 1;
+    }
+
+    /// Computes the orientation of three consecutive vertices 
+    VALUE_TYPE OrientationTest(const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) {
+        VALUE_TYPE acx = mf_GetX(pa) - mf_GetX(pc);
+        VALUE_TYPE bcx = mf_GetX(pb) - mf_GetX(pc);
+        VALUE_TYPE acy = mf_GetY(pa) - mf_GetY(pc);
+        VALUE_TYPE bcy = mf_GetY(pb) - mf_GetY(pc);
+
+        return acx * bcy - acy * bcx;
+    }
+
+    /// Checks if vertex pc lies to the left of the directed line through vertices pa and pb or on the line
+    bool LeftTurnCollinear(const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) {
+        return (OrientationTest(pa, pb, pc) >= 0);
+    }
+
+    /// Checks if vertex pc lies to the right of the directed line through vertices pa and pb or on the line
+    bool RightTurnCollinear(const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) {
+        return (OrientationTest(pa, pb, pc) <= 0);
+    }
+
+    //  ************
+    //  data members
+    //  ************
+
+    // set of polygons that have been added
+    std::vector<const POLYGON_TYPE*> m_polygonSet;
+
+    // set of parents that is computed from the polygon nesting algorithm
+    std::vector<size_t> m_parents;
+
+    //  ***************
+    //  functor members
+    //  ***************
+
+    GetVertexOrderFunctor   mf_GetVertexOrder;
+    GetNumVerticesFunctor   mf_GetNumVertices;
+    GetVertexFunctor        mf_GetVertex;
+    GetXFunctor             mf_GetX;
+    GetYFunctor             mf_GetY;
+
+    // nested class that is used as a comparator
+    class SubchainCompareFunctor
+    {
+        public:
+
+            SubchainCompareFunctor(const std::vector<POLYGON_TYPE*>& polygonSet, std::vector<Subchain>& subchains, VALUE_TYPE sweepLineCoord)
+            : m_polygonSet(polygonSet)
+            , m_subchains(subchains)
+            , m_sweepLineCoord(sweepLineCoord)
+            {
+            }
+
+            SubchainCompareFunctor() = delete;
+
+            SubchainCompareFunctor(const SubchainCompareFunctor& other) = default;
+            SubchainCompareFunctor& operator=(const SubchainCompareFunctor& other) = default;
+
+            void SetSweepLineCoord(VALUE_TYPE s) { m_sweepLineCoord = s; }
+
+            /// compares two subchains given by their index in the set of subchains with respect to an x-coordinate of the sweep line
+            /// NOTE: this will increment the current edge of the subchains in order to progress along the subchain according to the sweep line x-coordinate
+            /// Make sure that consecutive calls to this function with the same set of subchains have mononously increasing values of sweepLineCoord
+            bool operator() (const size_t& a, const size_t& b) const
+            {
+                if (a == b)
+                {
+                    return false;
+                }
+
+                const POLYGON_TYPE* polygonA = m_polygonSet[m_subchains[a].polygon];
+                const POLYGON_TYPE* polygonB = m_polygonSet[m_subchains[b].polygon];
+
+                // we need to compare the subchains regarding their y-coordinate of the intersection with the sweep line
+                while(GetX(GetVertex(polygonA, m_subchains[a].vertices[m_subchains[a].currentEdge])) < m_sweepLineCoord)
+                {
+                    m_subchains[a].currentEdge++;
+                }
+                assert(m_subchains[a].currentEdge < m_subchains[a].vertices.size());
+                // note: vertices [currentEdge - 1] and [currentEdge] correspond to the edge intersecting the sweep line
+                VALUE_TYPE yCoordA = GetY(GetVertex(polygonA, m_subchains[a].vertices[m_subchains[a].currentEdge]));
+                // #TODO: continue here to change implementation to generic types and functors
+                if (GetX(GetVertex(polygonA, m_subchains[a].vertices[m_subchains[a].currentEdge])) > m_sweepLineCoord)
+                {
+                    assert(m_subchains[a].currentEdge > 0);
+                    // sweep line intersects the edge and not the vertex
+                    // we can compute the intersection by linear interpolation
+                    float x1 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge - 1]].x;
+                    float y1 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge - 1]].y;
+
+                    float x2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x;
+                    float y2 = polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].y;
+
+                    assert(x1 != x2);
+                    assert(m_sweepLineCoord >= x1);
+                    assert(m_sweepLineCoord <= x2);
+
+                    float ratio = (m_sweepLineCoord - x1) / (x2 - x1);
+                    yCoordA = (1.f - ratio) * y1 + ratio * y2;
+                }
+
+                while(polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x < m_sweepLineCoord)
+                {
+                    m_subchains[b].currentEdge++;
+                }
+                assert(m_subchains[b].currentEdge < m_subchains[b].vertices.size());
+                // note: vertices [currentEdge - 1] and [currentEdge] correspond to the edge intersecting the sweep line
+                float yCoordB = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].y;
+                if (polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x > m_sweepLineCoord)
+                {
+                    assert(m_subchains[b].currentEdge > 0);
+                    // sweep line intersects the edge and not the vertex
+                    // we can compute the intersection by linear interpolation
+                    float x1 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge - 1]].x;
+                    float y1 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge - 1]].y;
+
+                    float x2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x;
+                    float y2 = polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].y;
+
+                    assert(x1 != x2);
+                    assert(m_sweepLineCoord >= x1);
+                    assert(m_sweepLineCoord <= x2);
+
+                    float ratio = (m_sweepLineCoord - x1) / (x2 - x1);
+                    yCoordB = (1.f - ratio) * y1 + ratio * y2;
+                }
+
+                if (yCoordA == yCoordB)
+                {
+                    // if this happens, a shared endpoint of two subchains has been met
+                    assert(polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x == m_sweepLineCoord);
+                    assert(polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x == m_sweepLineCoord);
+                    assert(m_subchains[a].polygon == m_subchains[b].polygon);
+
+                    // this means that one of the following cases has happened:
+                    // 1. we encounter the endpoint of one subchain that is the starting point of another one
+                    // 2. we encounter the startpoint of two subchains
+                    // 3. we encounter the endpoint of two subchains
+
+                    // case 1: we always put the endpoint of one chain before the starting point of the next as this does not affect the y-order
+                    if (m_subchains[a].currentEdge == 0 && m_subchains[b].currentEdge > 0)
+                    {
+                        return true;
+                    }
+                    else if (m_subchains[b].currentEdge == 0 && m_subchains[a].currentEdge > 0)
+                    {
+                        return false;
+                    } 
+                    else if (m_subchains[a].currentEdge == 0 && m_subchains[b].currentEdge == 0)
+                    {
+                        // case 2: we put the subchain with the higher y-coordinate in the next vertex first
+                        assert(m_subchains[a].vertices.size() > 1);
+                        assert(m_subchains[b].vertices.size() > 1);
+
+                        return (polygonA[m_subchains[a].vertices[1]].y > polygonB[m_subchains[b].vertices[1]].y);
+                    }
+                    else 
+                    {
+                        // case 3: we put the subchains with the higher y-coordinate in the preceding vertex first
+                        return (polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge - 1]].y > polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge - 1]].y);
+                    }
+                }
+                else
+                {
+                    return (yCoordA > yCoordB);
+                }
+            }
+
+        private:
+
+            const std::vector<const POLYGON_TYPE*>& m_polygonSet;
+            std::vector<Subchain>& m_subchains;
+            VALUE_TYPE m_sweepLineCoord;
+    };
+};
+
+// polygon nesting algorithm implementation
+template<typename POLYGON_TYPE, typename VERTEX_TYPE, typename VALUE_TYPE>
+void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNesting()
+{
+    // some alias names to make the code more readable
+    using GetVertex = mf_GetVertexFunctor;
+    using GetNumVertices = mf_GetNumVertices;
+    using GetVertex = mf_getVertex;
+    using GetX = mf_GetX;
+    using GetY = mf_GetY;
+
+    m_parents.clear();
+
+    if (m_polygonSet.empty())
+    {
+        return;
+    }
 
     // step 1: break down each polygon into subchains
 
     // preliminary step: compute the vertex winding order for each polygon
-    // #TODO: this step should be done prior to performing the polygon nesting algorithm if possible (e.g., during assembly of the polygon vertices)
-    std::vector<VertexOrder> vertexOrder(polygonSet.size());
+    /*std::vector<VertexOrder> vertexOrder(polygonSet.size());
     for (size_t i = 0; i < polygonSet.size(); ++i)
     {
         vertexOrder[i] = ComputeVertexOrder(*(polygonSet[i]));
-    }
+    }*/
 
     // find subchains for all polygons and also construct the list of endpoints
     std::vector<Subchain> subchains;
     std::vector<Endpoint> endpoints;
-    for (size_t i = 0; i < polygonSet.size(); ++i)
-    {
-        const Polygon& currentPolygon = *(polygonSet[i]);
 
-        assert(currentPolygon.size() > 2);
+    for (size_t i = 0; i < m_polygonSet.size(); ++i)
+    {
+        const Polygon* currentPolygon = polygonSet[i];
+        size_t numVertices = GetNumVertices(currentPolygon);
+
+        assert(GetNumVertices(currentPolygon) > 2);
 
         // depending on the winding order, we need the left turn or right turn test to check for reflex vertices
-        auto convexityTest = (vertexOrder[i] == VertexOrder::CCW) ? &LeftTurnCollinear : &RightTurnCollinear;
+        auto convexityTest = (GetVertexOrder(currentPolygon) == VertexOrder::CCW) ? 
+                [](const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) { return LeftTurnCollinear(pa, pb, pc); } 
+            :   [](const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) { return RightTurnCollinear(pa, pb, pc); };
 
         // we look for the leftmost vertex as it is a guaranteed starting point of a subchain
         // if two vertices have the same x-coordinate, we choose the one with the higher y-coordinate
         size_t leftMostVertex = 0;   
-        for (size_t currentVertex = 1; currentVertex < currentPolygon.size(); ++currentVertex)
+        for (size_t currentVertex = 1; currentVertex < numVertices; ++currentVertex)
         {
-            if ((currentPolygon[currentVertex].x < currentPolygon[leftMostVertex].x) 
-                || ((currentPolygon[currentVertex].x == currentPolygon[leftMostVertex].x) 
-                    && (currentPolygon[currentVertex].y > currentPolygon[leftMostVertex].y)))
+            if (    (GetX(GetVertex(currentPolygon, currentVertex)) < GetX(GetVertex(currentPolygon, leftMostVertex))) 
+                 || (   (GetX(GetVertex(currentPolygon, currentVertex)) == GetX(GetVertex(currentPolygon, leftMostVertex))) 
+                     && (GetY(GetVertex(currentPolygon, currentVertex)) > GetY(GetVertex(currentPolygon, leftMostVertex))))
             {
                 leftMostVertex = currentVertex;
             }
@@ -287,7 +384,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
             RIGHT       // subchain's x-coordinate is strictly decreasing
         };
 
-        size_t subChainEndVertex = currentPolygon.size();   // end vertex of the current subchain (in the beginning undefined)
+        size_t subChainEndVertex = numVertices;             // end vertex of the current subchain (in the beginning undefined)
         bool subChainEnded = false;                         // flag that is se when one of the terminating conditions for the current subchain is met
         SubchainDirection currentDirection = SubchainDirection::LEFT;
 
@@ -316,8 +413,8 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
             if (currentSubchain.vertices.size() == 1)
             {
                 currentSubchain.degenerate = false;
-                float firstX = currentPolygon[currentSubchain.vertices[0]].x;
-                float secondX = currentPolygon[currentVertex].x;
+                VALUE_TYPE firstX = GetX(currentPolygon, currentSubchain.vertices[0]);
+                VALUE_TYPE secondX = GetX(currentPolygon, currentVertex);
                 if (firstX < secondX)
                 {
                     currentDirection = SubchainDirection::LEFT;
@@ -330,8 +427,8 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
                 {
                     currentSubchain.degenerate = true;
                     // we still set the direction to reverse the vertex order within the subchain if necessary
-                    float firstY = currentPolygon[currentSubchain.vertices[0]].y;
-                    float secondY = currentPolygon[currentVertex].y;
+                    VALUE_TYPE firstY = GetY(currentPolygon, currentSubchain.vertices[0]);
+                    VALUE_TYPE secondY = GetY(currentPolygon, currentVertex);
                     if (firstY > secondY)
                     {
                         currentDirection = SubchainDirection::LEFT;
@@ -346,20 +443,20 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
             // check conditions for ending subchain
             if (    // 1. we are back at the beginning
-                    (currentVertex == leftMostVertex && subChainEndVertex != currentPolygon.size())
+                    (currentVertex == leftMostVertex && subChainEndVertex != numVertices)
                     // 2. we have a degenerate subchain and the next vertex would not have the same x-coordinate
-                    || (currentSubchain.degenerate && (currentPolygon[nextVertex].x != currentPolygon[currentVertex].x))
+                    || (currentSubchain.degenerate && (GetX(currentPolygon, nextVertex) != GetX(currentPolygon, currentVertex)))
                     // 3. not degenerate, current vertex is a reflex vertex (or collinear) - convex polygonal line ends, therefore also the subchain
                     ||  (!currentSubchain.degenerate && 
-                        !convexityTest(currentPolygon[pred(currentVertex, currentPolygon)], currentPolygon[currentVertex], currentPolygon[nextVertex]))
+                        !convexityTest(GetVertex(currentPolygon, pred(currentVertex, currentPolygon)), GetVertex(currentPolygon, currentVertex), GetVertex(currentPolygon, nextVertex)))
                     // 4. next vertex breaks the convex chain - we need to terminate the polygonal chain
                     ||  (!currentSubchain.degenerate && 
                         (currentSubchain.vertices.size() > 1) 
-                        && !convexityTest(currentPolygon[nextVertex], currentPolygon[currentSubchain.vertices[0]], currentPolygon[succ(currentSubchain.vertices[0], currentPolygon)]))
+                        && !convexityTest(GetVertex(currentPolygon, nextVertex), GetVertex(currentPolygon, currentSubchain.vertices[0]), GetVertex(currentPolygon, succ(currentSubchain.vertices[0], currentPolygon))))
                     // 5. next vertex breaks the strict monotony
                     ||  (!currentSubchain.degenerate &&
-                        (((currentDirection == SubchainDirection::LEFT) && currentPolygon[nextVertex].x <= currentPolygon[currentVertex].x) 
-                        || ((currentDirection == SubchainDirection::RIGHT) && currentPolygon[nextVertex].x >= currentPolygon[currentVertex].x)))
+                        (((currentDirection == SubchainDirection::LEFT) && GetX(GetVertex(currentPolygon, nextVertex)) <= GetX(GetVertex(currentPolygon, currentVertex))) 
+                        || ((currentDirection == SubchainDirection::RIGHT) && GetX(GetVertex(currentPolygon, nextVertex)) >= GetX(GetVertex(currentPolygon, currentVertex)))))
                 )
             {
                 subChainEnded = true;
@@ -434,28 +531,28 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         std::cout << std::endl;
     }
 #endif
- 
+
     // step 2: sort the endpoints of all subchains
 
     std::sort(endpoints.begin(), endpoints.end(), 
         // comparison functor: 1. by x coordinate, 2. by y coordinate       
         [&](Endpoint a, Endpoint b) 
         {
-            size_t polyA = a.polygon;
-            size_t polyB = b.polygon;
+            const POLYGON_TYPE* polyA = m_polygonSet[a.polygon];
+            const POLYGON_TYPE* polyB = m_polygonSet[b.polygon];
             size_t vertA = a.polygonVertexIndex;
             size_t vertB = b.polygonVertexIndex;
 
-            assert((*(polygonSet[polyA]))[vertA].x != (*(polygonSet[polyB]))[vertB].x
-                    || (*(polygonSet[polyA]))[vertA].y != (*(polygonSet[polyB]))[vertB].y);
+            assert(GetX(GetVertex(polyA, vertA)) != GetX(GetVertex(polyB, vertB))
+                   || GetY(GetVertex(polyA, vertA)) != GetY(GetVertex(polyB, vertB)));
 
-            if ((*(polygonSet[polyA]))[vertA].x != (*(polygonSet[polyB]))[vertB].x)
+            if (GetX(GetVertex(polyA, vertA)) != GetX(GetVertex(polyB, vertB))
             {
-                return ((*(polygonSet[polyA]))[vertA].x < (*(polygonSet[polyB]))[vertB].x);
+                return (GetX(GetVertex(polyA, vertA)) < GetX(GetVertex(polyB, vertB));
             }
             else
             {
-                return ((*(polygonSet[polyA]))[vertA].y > (*(polygonSet[polyB]))[vertB].y);
+                return (GetX(GetVertex(polyA, vertA)) > GetX(GetVertex(polyB, vertB));
             }
         });
 
@@ -463,10 +560,10 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
     std::cout << std::endl << "Sorting result: " << std::endl;
     for (auto& e : endpoints)
     {
-        size_t poly = e.polygon;
+        const POLYGON_TYPE* poly = m_polygonSet[e.polygon];
         size_t vert = e.polygonVertexIndex;
-        float x = (*(polygonSet[poly]))[vert].x;
-        float y = (*(polygonSet[poly]))[vert].y;
+        VALUE_TYPE x = GetX(GetVertex(polyA, vertA));
+        VALUE_TYPE y = GetY(GetVertex(polyA, vertA));
         std::cout << "[" << x << ", " << y << "] (" << e.subchains[0] << ", " << e.subchains[1] << ") ";
     }
     std::cout << std::endl;
@@ -475,9 +572,9 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
     // step 3: setup the initial situation for the plane sweep
 
     std::vector<size_t> orderedSubchains;
-    std::vector<std::vector<size_t> > orderedSubchainsForPolygons(polygonSet.size());
-    std::vector<size_t> parents(polygonSet.size());
-    std::fill(parents.begin(), parents.end(), INVALID_INDEX);
+    std::vector<std::vector<size_t> > orderedSubchainsForPolygons(m_polygonSet.size());
+    m_parents.resize(polygonSet.size());
+    std::fill(m_parents.begin(), m_parents.end(), INVALID_INDEX);
 
     // insert the two first subchains - make sure to take into account the "above" relationship when inserting them
     size_t s1 = endpoints[0].subchains[0];
@@ -502,7 +599,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
     else
     {
         // insert the subchain above the other one first
-        if ((*(polygonSet[p]))[subchains[s1].vertices[1]].y > (*(polygonSet[p]))[subchains[s2].vertices[1]].y)
+        if (GetY(GetVertex(m_polygonSet[p], subchains[s1].vertices[1])) > GetY(GetVertex(m_polygonSet[p], subchains[s2].vertices[1])))
         {
             orderedSubchains.push_back(s1);
             orderedSubchains.push_back(s2);
@@ -536,6 +633,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
 
     // step 4: perform plane sweep from left to right
 
+    // #TODO: make this a template / member functor / something else?!
     SubchainCompareFunctor compare(polygonSet, subchains, 0.f);
 
     for (size_t sweepLineIndex = 1; sweepLineIndex < endpoints.size(); ++sweepLineIndex)
@@ -551,7 +649,8 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         bool s2Degenerate = subchains[s2].degenerate;
 
         // curent sweep line x-coordinate
-        float sweepLineCoord = (*(polygonSet[currentEndpoint.polygon]))[currentEndpoint.polygonVertexIndex].x;
+        VALUE_TYPE sweepLineCoord = GetX(GetVertex(m_polygonSet[currentEndpoint.polygon], currentEndpoint.polygonVertexIndex));
+            
         compare.SetSweepLineCoord(sweepLineCoord);
 
         // check if both subchains of this endpoint have already been visited (or are degenerate) - if so, remove them from the list of ordered subchains and continue
@@ -682,8 +781,7 @@ std::vector<size_t> PolygonNesting(const PolygonSet& polygonSet)
         }
     }
 
-    // #TODO: use better representation for result...
-    return parents;
+    // #TODO: add a return value?
 }
 
  
