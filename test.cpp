@@ -4,6 +4,46 @@
 #define POLYGONNESTING_PRINT_DEBUG
 #include "polygonnesting.h"
 
+///////
+// Example Implementation of VERTEX_TYPE, POLYGON_TYPE, VALUE_TYPE = float, and functors
+///////
+
+// simple 2D vertex
+struct Vertex2D
+{
+    float x;
+    float y;
+};
+
+using Polygon = std::vector<Vertex2D>;
+using PolygonSet = std::vector<Polygon*>;
+
+/// Computes the winding order of the vertices of a polygon
+PolygonNesting<Polygon, Vertex2D>::VertexOrder ComputeVertexOrder(const Polygon& p) {
+    float area = 0;
+    //begin with edge to the first vertex and then iterate through all edges
+    Vertex2D startVertex = p.back();
+    Vertex2D endVertex;
+    for (Polygon::const_iterator i = p.begin(); i != p.end(); ++i) {
+        endVertex = *i;
+        area += startVertex.x * endVertex.y - startVertex.y * endVertex.x;
+        startVertex = endVertex;
+    }
+
+    return (area > 0) ? PolygonNesting<Polygon, Vertex2D>::VertexOrder::CCW : PolygonNesting<Polygon, Vertex2D>::VertexOrder::CW;
+}
+
+// functors for example implementation
+auto getVertexOrder = [](const Polygon* p) -> PolygonNesting<Polygon, Vertex2D>::VertexOrder { return ComputeVertexOrder(*p); };
+auto getNumVertices = [](const Polygon* p) -> size_t { return p->size(); };
+auto getVertex = [](const Polygon* p, size_t i) -> const Vertex2D& { return (*p)[i]; };
+auto getX = [](const Vertex2D& v) -> float { return v.x; };
+auto getY = [](const Vertex2D& v) -> float { return v.y; };
+
+///////
+// End Example implementation
+///////
+
 void PrintPolygonSet(const PolygonSet& polySet)
 {
     for (size_t i = 0; i < polySet.size(); ++i)
@@ -43,6 +83,8 @@ void PrintParents(const std::vector<size_t>& parents)
 
 int main()
 {
+    PolygonNesting<Polygon, Vertex2D> polygonNesting(getVertexOrder, getNumVertices, getVertex, getX, getY);
+
     std::vector<size_t> parentsResult;
 #ifdef TEST_CONFIGURATION_1
     // test 1: two nested triangle in CCW orientation
@@ -54,7 +96,14 @@ int main()
 
     PrintPolygonSet(polySet1);
 
-    parentsResult = PolygonNesting(polySet1);
+    polygonNesting.Clear();
+    for (auto p : polySet1)
+    {
+        polygonNesting.AddPolygon(p);
+    }
+
+    polygonNesting.ComputePolygonNesting();
+    parentsResult = polygonNesting.GetParents();
 
     // the parent of the second polygon should be the first
     assert(parentsResult[0] == static_cast<size_t>(-1));
@@ -69,7 +118,15 @@ int main()
 
     PrintPolygonSet(polySet1);
 
-    parentsResult = PolygonNesting(polySet1);
+    polygonNesting.Clear();
+    for (auto p : polySet1)
+    {
+        polygonNesting.AddPolygon(p);
+    }
+
+    polygonNesting.ComputePolygonNesting();
+    parentsResult = polygonNesting.GetParents();
+
     // the parent of the second polygon should be the first
     assert(parentsResult[0] == static_cast<size_t>(-1));
     assert(parentsResult[1] == 0);
@@ -82,7 +139,15 @@ int main()
 
     PrintPolygonSet(polySet1);
 
-    parentsResult = PolygonNesting(polySet1);
+    polygonNesting.Clear();
+    for (auto p : polySet1)
+    {
+        polygonNesting.AddPolygon(p);
+    }
+
+    polygonNesting.ComputePolygonNesting();
+    parentsResult = polygonNesting.GetParents();
+
     // the parent of the second polygon should be the first
     assert(parentsResult[0] == static_cast<size_t>(-1));
     assert(parentsResult[1] == 0);
@@ -99,7 +164,14 @@ int main()
 
     PrintPolygonSet(polySet2);
 
-    parentsResult = PolygonNesting(polySet2);
+    polygonNesting.Clear();
+    for (auto p : polySet2)
+    {
+        polygonNesting.AddPolygon(p);
+    }
+
+    polygonNesting.ComputePolygonNesting();
+    parentsResult = polygonNesting.GetParents();
 
     assert(parentsResult[0] == static_cast<size_t>(-1));
 
@@ -119,7 +191,14 @@ int main()
 
     PrintPolygonSet(polySet3);
 
-    parentsResult = PolygonNesting(polySet3); 
+    polygonNesting.Clear();
+    for (auto p : polySet3)
+    {
+        polygonNesting.AddPolygon(p);
+    }
+
+    polygonNesting.ComputePolygonNesting();
+    parentsResult = polygonNesting.GetParents(); 
 
     assert(parentsResult[0] == static_cast<size_t>(-1));
     assert(parentsResult[1] == static_cast<size_t>(-1));
@@ -142,7 +221,14 @@ int main()
 
     PrintPolygonSet(polySet4);
 
-    parentsResult = PolygonNesting(polySet4);
+    polygonNesting.Clear();
+    for (auto p : polySet4)
+    {
+        polygonNesting.AddPolygon(p);
+    }
+
+    polygonNesting.ComputePolygonNesting();
+    parentsResult = polygonNesting.GetParents();
 
     assert(parentsResult[0] == static_cast<size_t>(-1));
     assert(parentsResult[1] == 0);
@@ -162,7 +248,14 @@ int main()
 
     PrintPolygonSet(polySet5);
 
-    parentsResult = PolygonNesting(polySet5); 
+    polygonNesting.Clear();
+    for (auto p : polySet5)
+    {
+        polygonNesting.AddPolygon(p);
+    }
+
+    polygonNesting.ComputePolygonNesting();
+    parentsResult = polygonNesting.GetParents(); 
 
     assert(parentsResult[0] == static_cast<size_t>(-1));
     assert(parentsResult[1] == 0);
