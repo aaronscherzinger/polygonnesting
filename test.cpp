@@ -44,6 +44,8 @@ auto getY = [](const Vertex2D& v) -> float { return v.y; };
 // End Example implementation
 ///////
 
+//// Some helper functions for dumping information to the console ////
+
 void PrintPolygonSet(const PolygonSet& polySet)
 {
     for (size_t i = 0; i < polySet.size(); ++i)
@@ -75,6 +77,8 @@ void PrintParents(const std::vector<size_t>& parents)
     std::cout << std::endl;
 }
 
+//// enable or disable several test configurations ////
+
 #define TEST_CONFIGURATION_1
 #define TEST_CONFIGURATION_2
 #define TEST_CONFIGURATION_3
@@ -86,6 +90,7 @@ int main()
     PolygonNesting<Polygon, Vertex2D> polygonNesting(getVertexOrder, getNumVertices, getVertex, getX, getY);
 
     std::vector<size_t> parentsResult;
+
 #ifdef TEST_CONFIGURATION_1
     // test 1: two nested triangle in CCW orientation
     std::cout << std::endl << " TEST 1A " << std::endl << "-----" << std::endl;

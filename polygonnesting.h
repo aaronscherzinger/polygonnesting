@@ -9,8 +9,25 @@
 #include <iostream>
 #endif
 
-
-// VALUE_TYPE must be a floating point type
+/**
+ * Class for computing the nesting structure of multiple polygons.
+ *
+ * In order to use this class, you must provide several functors to process the template types.
+ * Note that VALUE_TYPE must be a floating point type.
+ *
+ * The functors are:
+ *      PolygonNesting::VertexOrder GetVertexOrderFunctor(const POLYGON_TYPE*) - used once initially to get the vertex order of a polygon
+ *      size_t GetNumVerticesFunctor(const POLYGON_TYPE*) - used to retrieve the number of vertices in a polygon
+ *      const VERTEX_TYPE& GetVertexFunctor(const POLYGON_TYPE*,size_t) - used to get a const reference to the vertex with a specific index in the polygon
+ *      VALUE_TYPE GetXFunctor(const VERTEX_TYPE&) - used to get the x-coordinate of a vertex
+ *      VALUE_TYPE GetYFunctor(const VERTEX_TYPE&) - used to get the y-coordinate of a vertex
+ *
+ *      Note that the GetVertexFunctor, GetXFunctor, and GetYFunctor may be called many times (so they should be implemented efficiently).
+ *
+ * In order to use the class, add polygons with the AddPolygon() method and then compute the nesting structure with ComputePolygonNesting().
+ * Use GetParents() to retrieve the parents as indices into the set of added polygons. #TODO: revise interface!!!
+ * In order to clear the data (e.g., to process a different set of polygons), call the Clear()-method.
+ */
 template<typename POLYGON_TYPE, typename VERTEX_TYPE, typename VALUE_TYPE = float>
 class PolygonNesting
 {
@@ -59,7 +76,7 @@ public:
 
     // #TODO: change data structure / return value
     std::vector<size_t>& GetParents() { return m_parents; }
-    const std::vector<size_t>& GetPArents() const { return m_parents; }
+    const std::vector<size_t>& GetParents() const { return m_parents; }
 
 private:
 
@@ -157,7 +174,7 @@ private:
     {
         public:
 
-            SubchainCompareFunctor(const std::vector<POLYGON_TYPE*>& polygonSet, std::vector<Subchain>& subchains, VALUE_TYPE sweepLineCoord,
+            SubchainCompareFunctor(const std::vector<const POLYGON_TYPE*>& polygonSet, std::vector<Subchain>& subchains, VALUE_TYPE sweepLineCoord,
                     GetVertexFunctor getVertex, GetXFunctor getX, GetYFunctor getY)
             : m_polygonSet(polygonSet)
             , m_subchains(subchains)
@@ -169,9 +186,6 @@ private:
             }
 
             SubchainCompareFunctor() = delete;
-
-            SubchainCompareFunctor(const SubchainCompareFunctor& other) = delete;
-            SubchainCompareFunctor& operator=(const SubchainCompareFunctor& other) = delete;
 
             void SetSweepLineCoord(VALUE_TYPE s) { m_sweepLineCoord = s; }
 
@@ -193,14 +207,14 @@ private:
                 const POLYGON_TYPE* polygonB = m_polygonSet[m_subchains[b].polygon];
 
                 // we need to compare the subchains regarding their y-coordinate of the intersection with the sweep line
-                VALUE_TYPE yCoordA = GetSweepLineIntersection(polygonA, m_subchains[a], m_sweepLineCoord);
-                VALUE_TYPE yCoordB = GetSweepLineIntersection(polygonB, m_subchains[b], m_sweepLineCoord);
+                VALUE_TYPE yCoordA = GetSweepLineIntersection(polygonA, const_cast<Subchain&>(m_subchains[a]), m_sweepLineCoord);
+                VALUE_TYPE yCoordB = GetSweepLineIntersection(polygonB, const_cast<Subchain&>(m_subchains[b]), m_sweepLineCoord);
 
                 if (yCoordA == yCoordB)
                 {
                     // if this happens, a shared endpoint of two subchains has been met
-                    assert(polygonA[m_subchains[a].vertices[m_subchains[a].currentEdge]].x == m_sweepLineCoord);
-                    assert(polygonB[m_subchains[b].vertices[m_subchains[b].currentEdge]].x == m_sweepLineCoord);
+                    assert(GetX(GetVertex(polygonA, m_subchains[a].vertices[m_subchains[a].currentEdge])) == m_sweepLineCoord);
+                    assert(GetX(GetVertex(polygonB, m_subchains[b].vertices[m_subchains[b].currentEdge])) == m_sweepLineCoord);
                     assert(m_subchains[a].polygon == m_subchains[b].polygon);
 
                     // this means that one of the following cases has happened:
@@ -241,7 +255,7 @@ private:
 
             // helper function to get the intersection between the subchain and the sweepline
                    
-            VALUE_TYPE GetSweepLineIntersection(const POLYGON_TYPE* polygon, Subchain& subchain, VALUE_TYPE sweepLineCoord)
+            VALUE_TYPE GetSweepLineIntersection(const POLYGON_TYPE* polygon, Subchain& subchain, VALUE_TYPE sweepLineCoord) const
             {         
                 auto& GetVertex = mf_GetVertex;
                 auto& GetX = mf_GetX;
@@ -313,19 +327,13 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
         return;
     }
 
-    // step 1: break down each polygon into subchains
-
-    // preliminary step: compute the vertex winding order for each polygon
-    /*std::vector<VertexOrder> vertexOrder(polygonSet.size());
-    for (size_t i = 0; i < polygonSet.size(); ++i)
-    {
-        vertexOrder[i] = ComputeVertexOrder(*(polygonSet[i]));
-    }*/
-
     // find subchains for all polygons and also construct the list of endpoints
     std::vector<Subchain> subchains;
     std::vector<Endpoint> endpoints;
 
+    // this will be set depending on the vertex order of a polygon
+    std::function<bool(const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc)> convexityTest;
+    
     for (size_t i = 0; i < m_polygonSet.size(); ++i)
     {
         const POLYGON_TYPE* currentPolygon = m_polygonSet[i];
@@ -334,9 +342,14 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
         assert(GetNumVertices(currentPolygon) > 2);
 
         // depending on the winding order, we need the left turn or right turn test to check for reflex vertices
-        auto convexityTest = (GetVertexOrder(currentPolygon) == VertexOrder::CCW) ? 
-                [this](const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) -> bool { return LeftTurnCollinear(pa, pb, pc); } 
-            :   [this](const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) -> bool { return RightTurnCollinear(pa, pb, pc); };
+        if (GetVertexOrder(currentPolygon) == VertexOrder::CCW)
+        {
+            convexityTest = [this](const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) -> bool { return LeftTurnCollinear(pa, pb, pc); };
+        }
+        else
+        { 
+            convexityTest = [this](const VERTEX_TYPE& pa, const VERTEX_TYPE& pb, const VERTEX_TYPE& pc) -> bool { return RightTurnCollinear(pa, pb, pc); };
+        }
 
         // we look for the leftmost vertex as it is a guaranteed starting point of a subchain
         // if two vertices have the same x-coordinate, we choose the one with the higher y-coordinate
@@ -392,8 +405,8 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
             if (currentSubchain.vertices.size() == 1)
             {
                 currentSubchain.degenerate = false;
-                VALUE_TYPE firstX = GetX(currentPolygon, currentSubchain.vertices[0]);
-                VALUE_TYPE secondX = GetX(currentPolygon, currentVertex);
+                VALUE_TYPE firstX = GetX(GetVertex(currentPolygon, currentSubchain.vertices[0]));
+                VALUE_TYPE secondX = GetX(GetVertex(currentPolygon, currentVertex));
                 if (firstX < secondX)
                 {
                     currentDirection = SubchainDirection::LEFT;
@@ -406,8 +419,8 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
                 {
                     currentSubchain.degenerate = true;
                     // we still set the direction to reverse the vertex order within the subchain if necessary
-                    VALUE_TYPE firstY = GetY(currentPolygon, currentSubchain.vertices[0]);
-                    VALUE_TYPE secondY = GetY(currentPolygon, currentVertex);
+                    VALUE_TYPE firstY = GetY(GetVertex(currentPolygon, currentSubchain.vertices[0]));
+                    VALUE_TYPE secondY = GetY(GetVertex(currentPolygon, currentVertex));
                     if (firstY > secondY)
                     {
                         currentDirection = SubchainDirection::LEFT;
@@ -424,7 +437,7 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
             if (    // 1. we are back at the beginning
                     (currentVertex == leftMostVertex && subChainEndVertex != numVertices)
                     // 2. we have a degenerate subchain and the next vertex would not have the same x-coordinate
-                    || (currentSubchain.degenerate && (GetX(currentPolygon, nextVertex) != GetX(currentPolygon, currentVertex)))
+                    || (currentSubchain.degenerate && (GetX(GetVertex(currentPolygon, nextVertex)) != GetX(GetVertex(currentPolygon, currentVertex))))
                     // 3. not degenerate, current vertex is a reflex vertex (or collinear) - convex polygonal line ends, therefore also the subchain
                     ||  (!currentSubchain.degenerate && 
                         !convexityTest(GetVertex(currentPolygon, pred(currentVertex, currentPolygon)), GetVertex(currentPolygon, currentVertex), GetVertex(currentPolygon, nextVertex)))
@@ -553,7 +566,8 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
     std::vector<size_t> orderedSubchains;
     std::vector<std::vector<size_t> > orderedSubchainsForPolygons(m_polygonSet.size());
     m_parents.resize(m_polygonSet.size());
-    std::fill(m_parents.begin(), m_parents.end(), INVALID_INDEX);
+    size_t fillValue = INVALID_INDEX;
+    std::fill(m_parents.begin(), m_parents.end(), fillValue);
 
     // insert the two first subchains - make sure to take into account the "above" relationship when inserting them
     size_t s1 = endpoints[0].subchains[0];
@@ -758,8 +772,6 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
             }
         }
     }
-
-    // #TODO: add a return value?
 }
 
  
