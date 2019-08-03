@@ -4,6 +4,7 @@
 #include <assert.h>
 #include <functional>
 #include <type_traits>
+#include <unordered_map>
 
 #ifdef POLYGONNESTING_PRINT_DEBUG
 #include <iostream>
@@ -25,7 +26,7 @@
  *      Note that the GetVertexFunctor, GetXFunctor, and GetYFunctor may be called many times (so they should be implemented efficiently).
  *
  * In order to use the class, add polygons with the AddPolygon() method and then compute the nesting structure with ComputePolygonNesting().
- * Use GetParents() to retrieve the parents as indices into the set of added polygons. #TODO: revise interface!!!
+ * Use GetParent() to retrieve the parent of a specific polygon after computing the nesting structure.
  * In order to clear the data (e.g., to process a different set of polygons), call the Clear()-method.
  */
 template<typename POLYGON_TYPE, typename VERTEX_TYPE, typename VALUE_TYPE = float>
@@ -48,7 +49,6 @@ public:
     using GetVertexFunctor = std::function<const VERTEX_TYPE&(const POLYGON_TYPE*,size_t)>;
     using GetXFunctor = std::function<VALUE_TYPE(const VERTEX_TYPE&)>;
     using GetYFunctor = std::function<VALUE_TYPE(const VERTEX_TYPE&)>;
-    
 
     PolygonNesting(GetVertexOrderFunctor getVertexOrder, GetNumVerticesFunctor getNumVertices, GetVertexFunctor getVertex, GetXFunctor getX, GetYFunctor getY)
     : mf_GetVertexOrder(getVertexOrder)
@@ -61,22 +61,33 @@ public:
       
     PolygonNesting() = delete;
 
+    /// Adds a polygon to the polygon set
     void AddPolygon(const POLYGON_TYPE* polygon)
     {
         m_polygonSet.push_back(polygon);
+    } 
+
+    /// Computes the polygon nesting of the added polygons
+    void ComputePolygonNesting();
+
+    /// returns the parent polygon of a polygon if any, else nullptr
+    const POLYGON_TYPE* GetParent(const POLYGON_TYPE* polygon) const
+    {
+        auto it = m_parents.find(polygon);
+        if (it != m_parents.end())
+        {
+            return it->second;
+        }
+
+        return nullptr;
     }
-    
+
+    /// Clears the added polygon list and the polygon nesting results
     void Clear()
     {
         m_polygonSet.clear();
         m_parents.clear();
     }
-
-    void ComputePolygonNesting();
-
-    // #TODO: change data structure / return value
-    std::vector<size_t>& GetParents() { return m_parents; }
-    const std::vector<size_t>& GetParents() const { return m_parents; }
 
 private:
 
@@ -156,8 +167,8 @@ private:
     // set of polygons that have been added
     std::vector<const POLYGON_TYPE*> m_polygonSet;
 
-    // set of parents that is computed from the polygon nesting algorithm
-    std::vector<size_t> m_parents;
+    // map containing the parent of each polygon (if it has one)
+    std::unordered_map<const POLYGON_TYPE*, const POLYGON_TYPE*> m_parents;
 
     //  ***************
     //  functor members
@@ -320,7 +331,13 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
     auto& GetX = mf_GetX;
     auto& GetY = mf_GetY;
 
+    // all parents are initialized as nullptr
     m_parents.clear();
+    m_parents.reserve(m_polygonSet.size());
+    for (auto p : m_polygonSet)
+    {
+        m_parents[p] = nullptr;
+    }
 
     if (m_polygonSet.empty())
     {
@@ -565,9 +582,6 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
 
     std::vector<size_t> orderedSubchains;
     std::vector<std::vector<size_t> > orderedSubchainsForPolygons(m_polygonSet.size());
-    m_parents.resize(m_polygonSet.size());
-    size_t fillValue = INVALID_INDEX;
-    std::fill(m_parents.begin(), m_parents.end(), fillValue);
 
     // insert the two first subchains - make sure to take into account the "above" relationship when inserting them
     size_t s1 = endpoints[0].subchains[0];
@@ -717,11 +731,11 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
                 // if odd: set the parent to the polygon, else set it to the parent of the polygon
                 if (numAbove % 2 == 1)
                 {
-                    m_parents[currentEndpoint.polygon] = polygon;
+                    m_parents[m_polygonSet[currentEndpoint.polygon]] = m_polygonSet[polygon];
                 }
                 else
                 {
-                    m_parents[currentEndpoint.polygon] = m_parents[polygon];
+                    m_parents[m_polygonSet[currentEndpoint.polygon]] = m_parents[m_polygonSet[polygon]];
                 }
             }
         }
@@ -773,5 +787,3 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
         }
     }
 }
-
- 

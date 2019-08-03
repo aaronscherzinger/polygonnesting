@@ -50,7 +50,7 @@ void PrintPolygonSet(const PolygonSet& polySet)
 {
     for (size_t i = 0; i < polySet.size(); ++i)
     {
-        std::cout << "Polygon " << i << ":" << std::endl;
+        std::cout << "Polygon " << i << " (" << polySet[i] << ") :" << std::endl;
         for (auto& v : *polySet[i])
         {
             std::cout << "[" << v.x << " , " << v.y << "] "; 
@@ -59,22 +59,24 @@ void PrintPolygonSet(const PolygonSet& polySet)
     }
 }
 
-void PrintParents(const std::vector<size_t>& parents)
+void PrintParents(const PolygonNesting<Polygon, Vertex2D>& nesting, const PolygonSet& polygons)
 {
-    std::cout << std::endl;
-    for (size_t i = 0; i < parents.size(); ++i)
+    for (size_t i = 0; i < polygons.size(); ++i)
     {
-        std::cout << "Parent(" << i << ") = ";
-        if (parents[i] == static_cast<size_t>(-1))
+        std::cout << "Polygon " << i << " (" << polygons[i] << ") has parent: ";
+        const Polygon* parentPoly = nesting.GetParent(polygons[i]);
+        if (parentPoly == nullptr)
         {
             std::cout << "none" << std::endl;
         }
         else
         {
-            std::cout << parents[i] << std::endl;
-        }    
+            auto it = std::find(polygons.begin(), polygons.end(), parentPoly);
+            assert(it != polygons.end());
+            size_t index = std::distance(polygons.begin(), it);
+            std::cout << index << " (" << parentPoly << ")" << std::endl;
+        }
     }
-    std::cout << std::endl;
 }
 
 //// enable or disable several test configurations ////
@@ -108,13 +110,12 @@ int main()
     }
 
     polygonNesting.ComputePolygonNesting();
-    parentsResult = polygonNesting.GetParents();
 
     // the parent of the second polygon should be the first
-    assert(parentsResult[0] == static_cast<size_t>(-1));
-    assert(parentsResult[1] == 0);
+    assert(polygonNesting.GetParent(polySet1[0]) == nullptr);
+    assert(polygonNesting.GetParent(polySet1[1]) == polySet1[0]);
 
-    PrintParents(parentsResult);
+    PrintParents(polygonNesting, polySet1);
 
     // test 2: invert orientation of both polygons to CW
     std::cout << std::endl << " TEST 1B " << std::endl << "-----" << std::endl;
@@ -130,13 +131,12 @@ int main()
     }
 
     polygonNesting.ComputePolygonNesting();
-    parentsResult = polygonNesting.GetParents();
 
     // the parent of the second polygon should be the first
-    assert(parentsResult[0] == static_cast<size_t>(-1));
-    assert(parentsResult[1] == 0);
+    assert(polygonNesting.GetParent(polySet1[0]) == nullptr);
+    assert(polygonNesting.GetParent(polySet1[1]) == polySet1[0]);
 
-    PrintParents(parentsResult);
+    PrintParents(polygonNesting, polySet1);
 
     // test 3: outer orientation is CCW, inner is CW 
     std::cout << std::endl << " TEST 1C " << std::endl << "-----" << std::endl;
@@ -151,13 +151,12 @@ int main()
     }
 
     polygonNesting.ComputePolygonNesting();
-    parentsResult = polygonNesting.GetParents();
 
     // the parent of the second polygon should be the first
-    assert(parentsResult[0] == static_cast<size_t>(-1));
-    assert(parentsResult[1] == 0);
+    assert(polygonNesting.GetParent(polySet1[0]) == nullptr);
+    assert(polygonNesting.GetParent(polySet1[1]) == polySet1[0]);
 
-    PrintParents(parentsResult);
+    PrintParents(polygonNesting, polySet1);
 #endif
 
 #ifdef TEST_CONFIGURATION_2
@@ -176,11 +175,11 @@ int main()
     }
 
     polygonNesting.ComputePolygonNesting();
-    parentsResult = polygonNesting.GetParents();
 
-    assert(parentsResult[0] == static_cast<size_t>(-1));
+    // the parent of the second polygon should be the first
+    assert(polygonNesting.GetParent(polySet2[0]) == nullptr);
 
-    PrintParents(parentsResult);
+    PrintParents(polygonNesting, polySet2);
 #endif
 
 #ifdef TEST_CONFIGURATION_3
@@ -203,15 +202,15 @@ int main()
     }
 
     polygonNesting.ComputePolygonNesting();
-    parentsResult = polygonNesting.GetParents(); 
 
-    assert(parentsResult[0] == static_cast<size_t>(-1));
-    assert(parentsResult[1] == static_cast<size_t>(-1));
-    assert(parentsResult[2] == 1);
-    assert(parentsResult[3] == 2);
-    assert(parentsResult[4] == 2);
+    // the parent of the second polygon should be the first
+    assert(polygonNesting.GetParent(polySet3[0]) == nullptr);
+    assert(polygonNesting.GetParent(polySet3[1]) == nullptr);
+    assert(polygonNesting.GetParent(polySet3[2]) == polySet3[1]);
+    assert(polygonNesting.GetParent(polySet3[3]) == polySet3[2]);
+    assert(polygonNesting.GetParent(polySet3[4]) == polySet3[2]);
 
-    PrintParents(parentsResult);
+    PrintParents(polygonNesting, polySet3); 
 #endif
 
 #ifdef TEST_CONFIGURATION_4
@@ -233,14 +232,14 @@ int main()
     }
 
     polygonNesting.ComputePolygonNesting();
-    parentsResult = polygonNesting.GetParents();
 
-    assert(parentsResult[0] == static_cast<size_t>(-1));
-    assert(parentsResult[1] == 0);
-    assert(parentsResult[2] == 0);
-    assert(parentsResult[3] == 1);
+    // the parent of the second polygon should be the first
+    assert(polygonNesting.GetParent(polySet4[0]) == nullptr);
+    assert(polygonNesting.GetParent(polySet4[1]) == polySet4[0]);
+    assert(polygonNesting.GetParent(polySet4[2]) == polySet4[0]);
+    assert(polygonNesting.GetParent(polySet4[3]) == polySet4[1]);
 
-    PrintParents(parentsResult);
+    PrintParents(polygonNesting, polySet4);
 #endif
 
 #ifdef TEST_CONFIGURATION_5
@@ -260,12 +259,12 @@ int main()
     }
 
     polygonNesting.ComputePolygonNesting();
-    parentsResult = polygonNesting.GetParents(); 
 
-    assert(parentsResult[0] == static_cast<size_t>(-1));
-    assert(parentsResult[1] == 0);
+    // the parent of the second polygon should be the first
+    assert(polygonNesting.GetParent(polySet5[0]) == nullptr);
+    assert(polygonNesting.GetParent(polySet5[1]) == polySet5[0]);
 
-    PrintParents(parentsResult);
+    PrintParents(polygonNesting, polySet5);
 #endif
 
     return 0;
