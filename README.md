@@ -13,4 +13,4 @@ Chandrajit L. Bajaj, Tamal K. Dey: Polygon Nesting and Robustness. Information P
 You can find the technical report in which the algorithm was originally proposed here: [https://docs.lib.purdue.edu/cgi/viewcontent.cgi?article=1781&context=cstech].
 
 
-For details on how to use the implementation, please refer to the class documentation in `polygonnesting.h` and the examples in `test.cpp`. The implementation has been tested with GCC 7.4 on Linux Mint 19, clang 10.0.1 on Mac OS, and Visual Studio 2017 on Windows 7.
+For details on how to use the implementation, please refer to the class documentation in `polygonnesting.h` and the examples in `test.cpp`. You will need to compile with C++ 11 support. The implementation has been compiled and tested using GCC 7.4 on Linux Mint 19, clang 10.0.1 on Mac OS, and Visual Studio 2017 on Windows 7.
