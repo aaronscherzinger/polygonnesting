@@ -73,7 +73,7 @@ void PrintParents(const PolygonNesting<Polygon, Vertex2D>& nesting, const Polygo
         {
             auto it = std::find(polygons.begin(), polygons.end(), parentPoly);
             assert(it != polygons.end());
-            size_t index = std::distance(polygons.begin(), it);
+            size_t index = static_cast<size_t>(std::distance(polygons.begin(), it));
             std::cout << index << " (" << parentPoly << ")" << std::endl;
         }
     }

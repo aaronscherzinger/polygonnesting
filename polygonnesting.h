@@ -202,7 +202,7 @@ private:
 
             /// compares two subchains given by their index in the set of subchains with respect to an x-coordinate of the sweep line
             /// NOTE: this will increment the current edge of the subchains in order to progress along the subchain according to the sweep line x-coordinate
-            /// Make sure that consecutive calls to this function with the same set of subchains have mononously increasing values of sweepLineCoord
+            /// Make sure that consecutive calls to this function with the same set of subchains have monotously increasing values of sweepLineCoord
             bool operator() (const size_t& a, const size_t& b) const
             {
                 if (a == b)
@@ -561,7 +561,7 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
             }
             else
             {
-                return (GetX(GetVertex(polyA, vertA)) > GetX(GetVertex(polyB, vertB)));
+                return (GetY(GetVertex(polyA, vertA)) > GetY(GetVertex(polyB, vertB)));
             }
         });
 
@@ -727,7 +727,7 @@ void PolygonNesting<POLYGON_TYPE, VERTEX_TYPE, VALUE_TYPE>::ComputePolygonNestin
                 // check in the list of subchains for this specific polygon to to know how many subchains are above the current subchain
                 auto polygonIterator = std::lower_bound(orderedSubchainsForPolygons[polygon].begin(), orderedSubchainsForPolygons[polygon].end(), *neighbor, compare);
                 assert(polygonIterator != orderedSubchainsForPolygons[polygon].end());
-                size_t numAbove = std::distance(orderedSubchainsForPolygons[polygon].begin(), polygonIterator) + 1;
+                size_t numAbove = static_cast<size_t>(std::distance(orderedSubchainsForPolygons[polygon].begin(), polygonIterator) + 1);
                 // if odd: set the parent to the polygon, else set it to the parent of the polygon
                 if (numAbove % 2 == 1)
                 {
