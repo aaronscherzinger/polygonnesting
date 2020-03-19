@@ -202,7 +202,7 @@ private:
 
             /// compares two subchains given by their index in the set of subchains with respect to an x-coordinate of the sweep line
             /// NOTE: this will increment the current edge of the subchains in order to progress along the subchain according to the sweep line x-coordinate
-            /// Make sure that consecutive calls to this function with the same set of subchains have monotously increasing values of sweepLineCoord
+            /// Make sure that consecutive calls to this function with the same set of subchains have monotonously increasing values of sweepLineCoord
             bool operator() (const size_t& a, const size_t& b) const
             {
                 if (a == b)
